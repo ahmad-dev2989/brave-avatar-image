@@ -7,8 +7,8 @@
 
 export const EXTENSION_CONFIG = {
   NAME: 'Brave Profile Images',
-  VERSION: '0.5.0',
-  PHASE: 'Phase 5 - Google Account Profile Image Integration'
+  VERSION: '0.6.0',
+  PHASE: 'Phase 6 - UI/UX Polish and Production-Quality Interface'
 };
 
 export const DB_CONFIG = {

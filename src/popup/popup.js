@@ -1,17 +1,13 @@
 /**
- * Popup Controller (Phase 5 - Google Account Profile Image Integration)
+ * Popup Controller (Phase 6 — UI/UX Polish & Production-Quality Interface)
  *
- * Responsibilities:
- * - Manages UI states: Loading, Active Avatar, Empty State, Source Selector,
- *   Google Account Connect/Import, Image Preview, Remove Confirmation.
- * - Displays active profile friendly name with inline editing.
- * - Prominently showcases the custom circular avatar preserving aspect ratio.
- * - Supports two avatar sources:
- *     1. Local Computer (PNG, JPEG, WEBP via file picker)
- *     2. Google Account (Profile picture via OAuth 2.0 & Google Userinfo API)
- * - Persists Google avatars locally as binary Blobs in IndexedDB with source metadata.
- * - Manages object URLs cleanly to avoid memory leaks.
- * - Ensures 100% offline resilience and per-profile isolation.
+ * Coordinates the extension popup interface:
+ * - Profile identity and custom circular avatar presentation (Hero Showcase).
+ * - Modal & Sheet management (Source selector, Google flow, Image preview, Remove confirmation).
+ * - Toast notification system (transient success, error recovery, auto-dismiss).
+ * - Button system hierarchy (Primary, Secondary, Danger, Google).
+ * - Clean object URL lifecycle management to avoid memory leaks.
+ * - Profile-isolated IndexedDB persistence and 100% offline display.
  */
 
 import { EXTENSION_CONFIG, DB_CONFIG } from '../utils/constants.js';
@@ -27,6 +23,8 @@ import {
 } from '../utils/image-processor.js';
 import { googleAuthService } from '../google/google-auth-service.js';
 import { googleProfileService } from '../google/google-profile-service.js';
+import { ToastController } from './toast.js';
+import { ModalManager } from './modal.js';
 
 const log = createLogger('Popup');
 
@@ -37,19 +35,26 @@ let previewAvatarUrl = null;
 let inFlightProcessedImage = null;
 let isOperationInProgress = false;
 
+// Reusable UI controllers
+let toast = null;
+let modalManager = null;
+
 document.addEventListener('DOMContentLoaded', async () => {
   log.info('Popup initialized in active Brave profile context.');
 
-  // Set extension version & phase badge
+  // Set extension version badge
   const versionBadge = document.getElementById('versionBadge');
   if (versionBadge) {
-    versionBadge.textContent = `v${EXTENSION_CONFIG.VERSION} • Phase 5`;
+    versionBadge.textContent = `v${EXTENSION_CONFIG.VERSION} • Phase 6`;
   }
 
-  // Bind all UI event listeners
+  // Initialize Toast and Modal controllers
+  initializeControllers();
+
+  // Bind UI event listeners
   setupEventListeners();
 
-  // Load profile identity and custom avatar
+  // Load active profile and avatar
   await loadProfileAndAvatar();
 });
 
@@ -60,13 +65,49 @@ window.addEventListener('unload', () => {
 });
 
 /**
+ * Initializes Toast and Modal controllers.
+ */
+function initializeControllers() {
+  toast = new ToastController({
+    container: document.getElementById('toastContainer'),
+    icon: document.getElementById('toastIcon'),
+    text: document.getElementById('toastText'),
+    actionBtn: document.getElementById('btnToastAction'),
+    dismissBtn: document.getElementById('btnDismissToast')
+  });
+
+  modalManager = new ModalManager();
+
+  // Register Modal Dialogs
+  modalManager.register('source-selector', {
+    element: document.getElementById('sourceSelectorCard'),
+    closeButtons: [document.getElementById('btnCloseSourceSelector')]
+  });
+
+  modalManager.register('google-flow', {
+    element: document.getElementById('googleFlowCard'),
+    closeButtons: [document.getElementById('btnCloseGoogleFlow')]
+  });
+
+  modalManager.register('remove-confirm', {
+    element: document.getElementById('removeConfirmBox'),
+    closeButtons: [document.getElementById('btnCancelRemove')]
+  });
+
+  modalManager.register('image-preview', {
+    element: document.getElementById('imagePreviewCard'),
+    closeButtons: [document.getElementById('btnCancelImage')]
+  });
+}
+
+/**
  * Loads the active profile record and retrieves the stored avatar from IndexedDB.
  */
 async function loadProfileAndAvatar() {
   if (isOperationInProgress) return;
   setOperationState(true);
   showLoadingState(true);
-  hideAlert();
+  if (toast) toast.hide();
 
   const profileNameText = document.getElementById('profileNameText');
 
@@ -74,7 +115,7 @@ async function loadProfileAndAvatar() {
     // 1. Resolve active profile partition identity
     const profile = await profileService.getOrCreateCurrentProfile();
     if (profileNameText) {
-      profileNameText.textContent = profile.name || 'Brave Profile';
+      profileNameText.textContent = profile.name || 'Current Brave Profile';
     }
 
     // 2. Fetch avatar record from isolated IndexedDB
@@ -82,7 +123,7 @@ async function loadProfileAndAvatar() {
     try {
       avatarRecord = await profileService.getProfileImage();
     } catch (storageErr) {
-      log.warn('Storage read warning (will fall back gracefully):', storageErr);
+      log.warn('Storage read warning (falling back gracefully):', storageErr);
     }
 
     if (avatarRecord && avatarRecord.imageData && avatarRecord.imageData instanceof Blob) {
@@ -100,7 +141,13 @@ async function loadProfileAndAvatar() {
     }
   } catch (err) {
     log.error('Error loading profile and avatar:', err);
-    showAlert('Could not load profile avatar.', 'error', true);
+    if (toast) {
+      toast.show(
+        ToastController.formatErrorMessage(err),
+        'error',
+        { actionText: 'Retry', onAction: loadProfileAndAvatar }
+      );
+    }
     renderEmptyState();
   } finally {
     showLoadingState(false);
@@ -122,9 +169,10 @@ function renderActiveState(avatarRecord) {
   const emptyStateText = document.getElementById('emptyStateText');
   const btnAddImage = document.getElementById('btnAddImage');
   const activeActionButtons = document.getElementById('activeActionButtons');
-  const removeConfirmBox = document.getElementById('removeConfirmBox');
   const avatarSourceTag = document.getElementById('avatarSourceTag');
+  const avatarSourceIcon = document.getElementById('avatarSourceIcon');
   const avatarSourceText = document.getElementById('avatarSourceText');
+  const btnDisconnectGoogle = document.getElementById('btnDisconnectGoogle');
 
   // Safely manage object URL
   if (activeAvatarUrl) {
@@ -151,26 +199,32 @@ function renderActiveState(avatarRecord) {
     avatarStatusText.textContent = 'Custom avatar active';
   }
 
-  // Check if avatar was imported from Google
-  if (avatarRecord.metadata && avatarRecord.metadata.source === 'google') {
-    if (avatarSourceTag && avatarSourceText) {
-      avatarSourceText.textContent = avatarRecord.metadata.email || avatarRecord.metadata.displayName || 'Google Account';
-      avatarSourceTag.classList.remove('hidden');
+  // Configure Secondary Source Indicator
+  if (avatarSourceTag && avatarSourceText) {
+    if (avatarRecord.metadata && avatarRecord.metadata.source === 'google') {
+      if (avatarSourceIcon) avatarSourceIcon.textContent = '🌐';
+      const email = avatarRecord.metadata.email || avatarRecord.metadata.displayName;
+      avatarSourceText.textContent = email ? `From Google (${email})` : 'From Google Account';
+      if (btnDisconnectGoogle) btnDisconnectGoogle.classList.remove('hidden');
+    } else {
+      if (avatarSourceIcon) avatarSourceIcon.textContent = '📁';
+      avatarSourceText.textContent = 'Uploaded from computer';
+      if (btnDisconnectGoogle) btnDisconnectGoogle.classList.add('hidden');
     }
-  } else {
-    if (avatarSourceTag) {
-      avatarSourceTag.classList.add('hidden');
-    }
+    avatarSourceTag.classList.remove('hidden');
   }
 
-  // Hide empty state hints
+  // Hide empty state text
   if (emptyStateText) emptyStateText.classList.add('hidden');
 
   // Toggle Action Buttons
   if (btnAddImage) btnAddImage.classList.add('hidden');
   if (activeActionButtons) activeActionButtons.classList.remove('hidden');
-  if (removeConfirmBox) removeConfirmBox.classList.add('hidden');
-  hideSourceCards();
+
+  // Close any open transient sheets
+  if (modalManager) {
+    modalManager.closeAll();
+  }
 }
 
 /**
@@ -185,10 +239,9 @@ function renderEmptyState() {
   const emptyStateText = document.getElementById('emptyStateText');
   const btnAddImage = document.getElementById('btnAddImage');
   const activeActionButtons = document.getElementById('activeActionButtons');
-  const removeConfirmBox = document.getElementById('removeConfirmBox');
   const avatarSourceTag = document.getElementById('avatarSourceTag');
 
-  // Revoke any existing active URL
+  // Revoke active object URL
   if (activeAvatarUrl) {
     revokeObjectUrl(activeAvatarUrl);
     activeAvatarUrl = null;
@@ -213,7 +266,7 @@ function renderEmptyState() {
     avatarStatusText.textContent = 'No custom avatar';
   }
 
-  // Hide source tag
+  // Hide source tag in empty state
   if (avatarSourceTag) avatarSourceTag.classList.add('hidden');
 
   // Show empty state text
@@ -222,18 +275,11 @@ function renderEmptyState() {
   // Toggle Action Buttons
   if (btnAddImage) btnAddImage.classList.remove('hidden');
   if (activeActionButtons) activeActionButtons.classList.add('hidden');
-  if (removeConfirmBox) removeConfirmBox.classList.add('hidden');
-  hideSourceCards();
-}
 
-/**
- * Hides temporary source selection and Google cards.
- */
-function hideSourceCards() {
-  const sourceSelectorCard = document.getElementById('sourceSelectorCard');
-  const googleFlowCard = document.getElementById('googleFlowCard');
-  if (sourceSelectorCard) sourceSelectorCard.classList.add('hidden');
-  if (googleFlowCard) googleFlowCard.classList.add('hidden');
+  // Close modals
+  if (modalManager) {
+    modalManager.closeAll();
+  }
 }
 
 /**
@@ -260,23 +306,25 @@ function showLoadingState(isLoading) {
 }
 
 /**
- * Disables buttons to prevent duplicate / conflicting in-flight clicks.
+ * Disables buttons during asynchronous operations to prevent race conditions.
  *
  * @param {boolean} inProgress
  */
 function setOperationState(inProgress) {
   isOperationInProgress = inProgress;
 
-  const btnAddImage = document.getElementById('btnAddImage');
-  const btnChangeImage = document.getElementById('btnChangeImage');
-  const btnRemoveImage = document.getElementById('btnRemoveImage');
-  const btnSaveImage = document.getElementById('btnSaveImage');
-  const btnConfirmRemove = document.getElementById('btnConfirmRemove');
-  const btnConnectGoogle = document.getElementById('btnConnectGoogle');
-  const btnSourceComputer = document.getElementById('btnSourceComputer');
-  const btnSourceGoogle = document.getElementById('btnSourceGoogle');
+  const buttons = [
+    document.getElementById('btnAddImage'),
+    document.getElementById('btnChangeImage'),
+    document.getElementById('btnRemoveImage'),
+    document.getElementById('btnSaveImage'),
+    document.getElementById('btnConfirmRemove'),
+    document.getElementById('btnConnectGoogle'),
+    document.getElementById('btnSourceComputer'),
+    document.getElementById('btnSourceGoogle')
+  ];
 
-  [btnAddImage, btnChangeImage, btnRemoveImage, btnSaveImage, btnConfirmRemove, btnConnectGoogle, btnSourceComputer, btnSourceGoogle].forEach((btn) => {
+  buttons.forEach((btn) => {
     if (btn) btn.disabled = inProgress;
   });
 }
@@ -288,7 +336,7 @@ function setupEventListeners() {
   // 1. Profile Name Inline Editing
   setupProfileNameEditor();
 
-  // 2. Source Selection & Image Flow (Computer vs Google)
+  // 2. Avatar Selection Flow (Computer vs Google)
   setupSourceSelection();
 
   // 3. Local Image File Flow
@@ -339,7 +387,7 @@ function setupProfileNameEditor() {
           if (profileNameText) profileNameText.textContent = updated.name;
         } catch (err) {
           log.error('Failed to rename profile:', err);
-          showAlert('Failed to save profile name.', 'error');
+          if (toast) toast.show('Failed to save profile name.', 'error');
         }
       }
       profileEditForm.classList.add('hidden');
@@ -355,27 +403,14 @@ function setupSourceSelection() {
   const btnAddImage = document.getElementById('btnAddImage');
   const btnChangeImage = document.getElementById('btnChangeImage');
   const profileAvatarWrapper = document.getElementById('profileAvatarWrapper');
-
-  const sourceSelectorCard = document.getElementById('sourceSelectorCard');
-  const btnCloseSourceSelector = document.getElementById('btnCloseSourceSelector');
   const btnSourceComputer = document.getElementById('btnSourceComputer');
   const btnSourceGoogle = document.getElementById('btnSourceGoogle');
-
-  const removeConfirmBox = document.getElementById('removeConfirmBox');
-  const googleFlowCard = document.getElementById('googleFlowCard');
-  const imagePreviewCard = document.getElementById('imagePreviewCard');
   const imageFileInput = document.getElementById('imageFileInput');
 
-  const openSourceSelector = () => {
+  const openSourceSelector = (e) => {
     if (isOperationInProgress) return;
-    hideAlert();
-    if (removeConfirmBox) removeConfirmBox.classList.add('hidden');
-    if (googleFlowCard) googleFlowCard.classList.add('hidden');
-    if (imagePreviewCard) imagePreviewCard.classList.add('hidden');
-
-    if (sourceSelectorCard) {
-      sourceSelectorCard.classList.remove('hidden');
-    }
+    if (toast) toast.hide();
+    modalManager.open('source-selector', e?.currentTarget || btnAddImage);
   };
 
   if (btnAddImage) btnAddImage.addEventListener('click', openSourceSelector);
@@ -386,21 +421,15 @@ function setupSourceSelection() {
     profileAvatarWrapper.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
-        openSourceSelector();
+        openSourceSelector(e);
       }
     });
   }
 
-  if (btnCloseSourceSelector) {
-    btnCloseSourceSelector.addEventListener('click', () => {
-      if (sourceSelectorCard) sourceSelectorCard.classList.add('hidden');
-    });
-  }
-
-  // Choice 1: Local Computer
+  // Option 1: Local Computer File
   if (btnSourceComputer) {
     btnSourceComputer.addEventListener('click', () => {
-      if (sourceSelectorCard) sourceSelectorCard.classList.add('hidden');
+      modalManager.close('source-selector', false);
       if (imageFileInput) {
         imageFileInput.value = '';
         imageFileInput.click();
@@ -408,10 +437,10 @@ function setupSourceSelection() {
     });
   }
 
-  // Choice 2: Google Account
+  // Option 2: Google Account
   if (btnSourceGoogle) {
     btnSourceGoogle.addEventListener('click', async () => {
-      if (sourceSelectorCard) sourceSelectorCard.classList.add('hidden');
+      modalManager.close('source-selector', false);
       await openGoogleFlow();
     });
   }
@@ -421,22 +450,17 @@ function setupSourceSelection() {
  * Opens and initializes the Google Account card.
  */
 async function openGoogleFlow() {
-  const googleFlowCard = document.getElementById('googleFlowCard');
   const googleUnconfiguredView = document.getElementById('googleUnconfiguredView');
   const googleConnectView = document.getElementById('googleConnectView');
   const googleLoadingView = document.getElementById('googleLoadingView');
   const inputCustomClientId = document.getElementById('inputCustomClientId');
 
-  if (!googleFlowCard) return;
-
-  hideAlert();
-  googleFlowCard.classList.remove('hidden');
+  if (toast) toast.hide();
   if (googleLoadingView) googleLoadingView.classList.add('hidden');
 
   const isConfigured = await googleAuthService.isConfigured();
 
   if (!isConfigured) {
-    // Show configuration guide
     if (googleUnconfiguredView) googleUnconfiguredView.classList.remove('hidden');
     if (googleConnectView) googleConnectView.classList.add('hidden');
     if (inputCustomClientId) {
@@ -444,18 +468,17 @@ async function openGoogleFlow() {
       inputCustomClientId.value = currentId || '';
     }
   } else {
-    // Show connect prompt
     if (googleUnconfiguredView) googleUnconfiguredView.classList.add('hidden');
     if (googleConnectView) googleConnectView.classList.remove('hidden');
   }
+
+  modalManager.open('google-flow');
 }
 
 /**
  * Sets up Google OAuth and Profile picture import flows.
  */
 function setupGoogleFlow() {
-  const btnCloseGoogleFlow = document.getElementById('btnCloseGoogleFlow');
-  const googleFlowCard = document.getElementById('googleFlowCard');
   const btnConnectGoogle = document.getElementById('btnConnectGoogle');
   const googleConnectView = document.getElementById('googleConnectView');
   const googleLoadingView = document.getElementById('googleLoadingView');
@@ -464,27 +487,19 @@ function setupGoogleFlow() {
   const btnSaveClientId = document.getElementById('btnSaveClientId');
   const inputCustomClientId = document.getElementById('inputCustomClientId');
   const googleUnconfiguredView = document.getElementById('googleUnconfiguredView');
-
   const btnDisconnectGoogle = document.getElementById('btnDisconnectGoogle');
-
-  // Close Google flow card
-  if (btnCloseGoogleFlow) {
-    btnCloseGoogleFlow.addEventListener('click', () => {
-      if (googleFlowCard) googleFlowCard.classList.add('hidden');
-    });
-  }
 
   // Save custom client ID entered in popup
   if (btnSaveClientId && inputCustomClientId) {
     btnSaveClientId.addEventListener('click', async () => {
       const val = inputCustomClientId.value.trim();
       if (!val) {
-        showAlert('Please paste a valid Google OAuth Client ID.', 'warning');
+        if (toast) toast.show('Please paste a valid Google OAuth Client ID.', 'warning');
         return;
       }
 
       await googleAuthService.setCustomClientId(val);
-      showAlert('Google Client ID saved locally.', 'success');
+      if (toast) toast.show('Google Client ID saved locally.', 'success');
 
       if (googleUnconfiguredView) googleUnconfiguredView.classList.add('hidden');
       if (googleConnectView) googleConnectView.classList.remove('hidden');
@@ -501,7 +516,7 @@ function setupGoogleFlow() {
         if (googleConnectView) googleConnectView.classList.add('hidden');
         if (googleLoadingView) googleLoadingView.classList.remove('hidden');
 
-        // Execute complete import pipeline
+        // Execute import pipeline with step status reporting
         const result = await googleProfileService.importGoogleAvatar({
           onProgress: (statusMsg) => {
             if (googleLoadingText) googleLoadingText.textContent = statusMsg;
@@ -509,7 +524,7 @@ function setupGoogleFlow() {
         });
 
         // Close Google Card
-        if (googleFlowCard) googleFlowCard.classList.add('hidden');
+        modalManager.close('google-flow', false);
 
         // Render newly saved avatar
         renderActiveState({
@@ -517,10 +532,9 @@ function setupGoogleFlow() {
           metadata: result.avatarRecord.metadata
         });
 
-        showAlert(
-          `Imported Google avatar for ${result.user.name || result.user.email}.`,
-          'success'
-        );
+        if (toast) {
+          toast.show('Google profile photo applied.', 'success');
+        }
 
         // Refresh diagnostics if open
         const panel = document.getElementById('diagnosticsPanel');
@@ -532,23 +546,30 @@ function setupGoogleFlow() {
         if (googleLoadingView) googleLoadingView.classList.add('hidden');
         if (googleConnectView) googleConnectView.classList.remove('hidden');
 
-        const message = err.message || 'Failed to import Google profile photo.';
-        showAlert(message, 'error');
+        const friendlyMsg = ToastController.formatErrorMessage(err);
+        if (toast) toast.show(friendlyMsg, 'error');
       } finally {
         setOperationState(false);
       }
     });
   }
 
-  // Disconnect Google Account Session (leaves local avatar intact)
+  // Disconnect Google Account Session (preserves local avatar in IndexedDB)
   if (btnDisconnectGoogle) {
     btnDisconnectGoogle.addEventListener('click', async () => {
       try {
         await googleAuthService.signOut();
         const avatarSourceTag = document.getElementById('avatarSourceTag');
-        if (avatarSourceTag) avatarSourceTag.classList.add('hidden');
+        const avatarSourceIcon = document.getElementById('avatarSourceIcon');
+        const avatarSourceText = document.getElementById('avatarSourceText');
 
-        showAlert('Google account session disconnected. Local avatar remains saved.', 'info');
+        if (btnDisconnectGoogle) btnDisconnectGoogle.classList.add('hidden');
+        if (avatarSourceIcon) avatarSourceIcon.textContent = '📁';
+        if (avatarSourceText) avatarSourceText.textContent = 'Uploaded from computer';
+
+        if (toast) {
+          toast.show('Google account session disconnected. Local avatar remains saved.', 'info');
+        }
       } catch (err) {
         log.error('Failed to disconnect Google account:', err);
       }
@@ -563,19 +584,12 @@ function setupLocalImageActions() {
   const imageFileInput = document.getElementById('imageFileInput');
   const btnRemoveImage = document.getElementById('btnRemoveImage');
 
-  const imagePreviewCard = document.getElementById('imagePreviewCard');
   const imagePreviewImg = document.getElementById('imagePreviewImg');
   const previewFileName = document.getElementById('previewFileName');
   const previewMetaInfo = document.getElementById('previewMetaInfo');
   const btnSaveImage = document.getElementById('btnSaveImage');
-  const btnCancelImage = document.getElementById('btnCancelImage');
 
-  const removeConfirmBox = document.getElementById('removeConfirmBox');
-  const btnCancelRemove = document.getElementById('btnCancelRemove');
   const btnConfirmRemove = document.getElementById('btnConfirmRemove');
-
-  const btnDismissAlert = document.getElementById('btnDismissAlert');
-  const btnRetryAction = document.getElementById('btnRetryAction');
 
   // File selected in native dialog
   if (imageFileInput) {
@@ -588,7 +602,7 @@ function setupLocalImageActions() {
       // Validate constraints (MIME type, size <= 5 MB)
       const validation = validateImageFile(file);
       if (!validation.valid) {
-        showAlert(validation.error, 'error');
+        if (toast) toast.show(validation.error, 'error');
         return;
       }
 
@@ -610,11 +624,12 @@ function setupLocalImageActions() {
           previewMetaInfo.textContent = `${processed.width} × ${processed.height} • ${formatBytes(processed.sizeBytes)}`;
         }
 
-        if (imagePreviewCard) imagePreviewCard.classList.remove('hidden');
-        hideAlert();
+        modalManager.open('image-preview');
+        if (toast) toast.hide();
       } catch (err) {
         log.error('Image processing failed:', err);
-        showAlert(err.message || 'Failed to decode or crop image file.', 'error');
+        const friendlyMsg = ToastController.formatErrorMessage(err);
+        if (toast) toast.show(friendlyMsg, 'error');
       } finally {
         setOperationState(false);
       }
@@ -643,7 +658,7 @@ function setupLocalImageActions() {
         await profileService.saveProfileImage(inFlightProcessedImage.blob, metadata);
 
         // Hide preview and clean up preview URL
-        if (imagePreviewCard) imagePreviewCard.classList.add('hidden');
+        modalManager.close('image-preview', false);
         if (previewAvatarUrl) {
           revokeObjectUrl(previewAvatarUrl);
           previewAvatarUrl = null;
@@ -657,7 +672,8 @@ function setupLocalImageActions() {
           imageData: savedBlob,
           metadata
         });
-        showAlert('Custom avatar saved successfully.', 'success');
+
+        if (toast) toast.show('Avatar updated.', 'success');
 
         // Refresh diagnostics if open
         const panel = document.getElementById('diagnosticsPanel');
@@ -666,41 +682,24 @@ function setupLocalImageActions() {
         }
       } catch (err) {
         log.error('Failed to save avatar image:', err);
-        showAlert('Failed to save avatar to local storage. Please try again.', 'error');
+        if (toast) {
+          toast.show(
+            ToastController.formatErrorMessage(err),
+            'error',
+            { actionText: 'Try Again', onAction: () => btnSaveImage.click() }
+          );
+        }
       } finally {
         setOperationState(false);
-        btnSaveImage.textContent = 'Save Avatar';
+        btnSaveImage.textContent = 'Use This Image';
       }
-    });
-  }
-
-  // Cancel Preview
-  if (btnCancelImage) {
-    btnCancelImage.addEventListener('click', () => {
-      if (imagePreviewCard) imagePreviewCard.classList.add('hidden');
-      if (previewAvatarUrl) {
-        revokeObjectUrl(previewAvatarUrl);
-        previewAvatarUrl = null;
-      }
-      inFlightProcessedImage = null;
     });
   }
 
   // Show Remove Confirmation
   if (btnRemoveImage) {
-    btnRemoveImage.addEventListener('click', () => {
-      if (removeConfirmBox) {
-        removeConfirmBox.classList.remove('hidden');
-      }
-    });
-  }
-
-  // Cancel Remove Action
-  if (btnCancelRemove) {
-    btnCancelRemove.addEventListener('click', () => {
-      if (removeConfirmBox) {
-        removeConfirmBox.classList.add('hidden');
-      }
+    btnRemoveImage.addEventListener('click', (e) => {
+      modalManager.open('remove-confirm', e.currentTarget);
     });
   }
 
@@ -715,9 +714,9 @@ function setupLocalImageActions() {
 
         await profileService.removeProfileImage();
 
-        if (removeConfirmBox) removeConfirmBox.classList.add('hidden');
+        modalManager.close('remove-confirm', false);
         renderEmptyState();
-        showAlert('Custom avatar removed.', 'info');
+        if (toast) toast.show('Avatar removed.', 'info');
 
         // Refresh diagnostics if open
         const panel = document.getElementById('diagnosticsPanel');
@@ -726,72 +725,13 @@ function setupLocalImageActions() {
         }
       } catch (err) {
         log.error('Failed to remove profile image:', err);
-        showAlert('Failed to delete avatar from local storage.', 'error');
+        if (toast) toast.show('Failed to remove avatar from local storage.', 'error');
       } finally {
         setOperationState(false);
         btnConfirmRemove.textContent = 'Remove';
       }
     });
   }
-
-  // Dismiss alert
-  if (btnDismissAlert) {
-    btnDismissAlert.addEventListener('click', hideAlert);
-  }
-
-  // Retry action
-  if (btnRetryAction) {
-    btnRetryAction.addEventListener('click', async () => {
-      hideAlert();
-      await loadProfileAndAvatar();
-    });
-  }
-}
-
-/**
- * Displays an alert banner inside the popup.
- *
- * @param {string} message
- * @param {'error'|'warning'|'success'|'info'} [type='error']
- * @param {boolean} [showRetry=false]
- */
-function showAlert(message, type = 'error', showRetry = false) {
-  const imageAlert = document.getElementById('imageAlert');
-  const imageAlertText = document.getElementById('imageAlertText');
-  const alertIcon = document.getElementById('alertIcon');
-  const btnRetryAction = document.getElementById('btnRetryAction');
-
-  if (!imageAlert || !imageAlertText) return;
-
-  imageAlertText.textContent = message;
-  imageAlert.classList.remove('alert-warning', 'alert-success', 'hidden');
-
-  if (type === 'warning') {
-    imageAlert.classList.add('alert-warning');
-    if (alertIcon) alertIcon.textContent = '⚠️';
-  } else if (type === 'success') {
-    imageAlert.classList.add('alert-success');
-    if (alertIcon) alertIcon.textContent = '✓';
-  } else if (type === 'info') {
-    imageAlert.classList.add('alert-warning');
-    if (alertIcon) alertIcon.textContent = 'ℹ️';
-  } else {
-    if (alertIcon) alertIcon.textContent = '⚠️';
-  }
-
-  if (btnRetryAction) {
-    btnRetryAction.classList.toggle('hidden', !showRetry);
-  }
-
-  imageAlert.classList.remove('hidden');
-}
-
-/**
- * Hides the alert banner.
- */
-function hideAlert() {
-  const imageAlert = document.getElementById('imageAlert');
-  if (imageAlert) imageAlert.classList.add('hidden');
 }
 
 /**

@@ -177,24 +177,77 @@ brave-profile-image/
 │       ├── diagnostics.js        # Environment, storage, and identity probe collector
 │       ├── image-processor.js    # Validation, decoding, center-cropping, and resizing
 │       └── logger.js             # Formatted console logging helper
+│   ├── popup/
+│   │   ├── popup.html            # Refined semantic popup layout with accessible dialogs
+│   │   ├── popup.css             # Production styling with dark/light themes & motion tokens
+│   │   ├── popup.js              # State controller managing UI workflows
+│   │   ├── modal.js              # Modal/sheet manager with Escape key accessibility
+│   │   └── toast.js              # Accessible toast notifications with error recovery
+│   │
+│   ├── google/
+│   │   ├── google-auth-service.js     # OAuth 2.0 via chrome.identity.launchWebAuthFlow
+│   │   └── google-profile-service.js  # Userinfo API fetch & image download pipeline
+│   │
+│   ├── profiles/
+│   │   ├── profile-model.js      # Data structure representing a profile
+│   │   └── profile-service.js    # Profile instance resolution and image association
+│   │
+│   ├── storage/
+│   │   └── image-storage.js      # IndexedDB engine for profile-scoped image Blobs
+│   │
+│   └── utils/
+│       ├── constants.js          # App constants, image limits, DB stores, Google config
+│       ├── diagnostics.js        # Multi-profile diagnostics data collector
+│       ├── image-processor.js    # Center crop, 512x512 downscale, PNG normalization
+│       └── logger.js             # Scoped console logging utility
 │
 └── tests/
-    ├── test-runner.html          # Interactive browser test runner page (Phase 5)
-    └── test-suite.js             # 25 automated unit and integration tests
+    ├── test-runner.html          # Interactive browser test runner page (Phase 6)
+    └── test-suite.js             # 34 automated unit and integration tests
 ```
 
 ---
 
-## 5. Running the Automated Test Suite
+## 5. UI/UX Polish & Production Interface (Phase 6)
 
-To verify Google authentication URL building, redirect parsing, high-res photo transformations, image processing, binary IndexedDB persistence, and multi-profile isolation:
+### 5.1 Visual Hierarchy & Design System
+- **Compact Popup Design**: Sized to 330px width for quick, non-disruptive access without clipping or horizontal scrolling.
+- **Button System Hierarchy**:
+  - `btn-primary`: Prominent accent action (`+ Add Avatar`, `Use This Image`).
+  - `btn-secondary`: Subtle card surface for secondary actions (`Change Avatar`, `Cancel`).
+  - `btn-danger`: Red-tinted alert action for destructive removal (`Remove Avatar`).
+  - `btn-google`: Clean Google-branded sign-in button with crisp SVG logo.
+- **Hero Avatar Showcase**: Large 80×80px circular frame with neutral silhouette placeholder in empty state and glowing border in active state.
+- **Secondary Source Indicator**: Subtle tag indicates whether the avatar was *"Uploaded from computer"* or *"From Google Account (email@gmail.com)"*.
+
+### 5.2 Toast Notification System (`toast.js`)
+- Floating status toast container positioned at the top of the popup body.
+- Types: `success`, `error`, `warning`, `info`.
+- Auto-dismiss for transient messages (3.5s for success/info).
+- Actionable recovery: Translates raw technical DOMExceptions and OAuth codes into friendly advice with an actionable `[ Retry ]` button.
+
+### 5.3 Accessible Modal & Sheet Controller (`modal.js`)
+- Single-dialog enforcement: Opening one modal (e.g. source selector) automatically closes another to prevent overlapping workflows.
+- Keyboard accessibility: Pressing `Escape` closes any active sheet/dialog and returns focus to the triggering element.
+- Semantic HTML: Uses `role="dialog"` or `role="alertdialog"`, `aria-modal="true"`, and `aria-labelledby`.
+
+### 5.4 Theme & Motion Support
+- **System-Aware Light & Dark Themes**: Uses CSS custom properties with `@media (prefers-color-scheme: light)` to match the user's OS and Brave theme seamlessly.
+- **Reduced Motion Support**: `@media (prefers-reduced-motion: reduce)` removes nonessential animations and transforms for users with motion sensitivity.
+- **Visible Focus Rings**: Clean `:focus-visible` styling (`outline: 2px solid var(--accent-orange)`) across all interactive elements.
+
+---
+
+## 6. Running the Automated Test Suite
+
+To verify Google authentication URL building, redirect parsing, high-res photo transformations, image processing, binary IndexedDB persistence, toast notifications, modal accessibility, and multi-profile isolation:
 
 1. Open Brave Browser.
 2. Open a new tab and navigate to:
    ```text
    file:///c:/Users/ahmad/Documents/brave profile image/tests/test-runner.html
    ```
-3. All 25 automated test cases will execute and report live status. All 25 should display **PASS**:
+3. All **34 automated test cases** execute live. All 34 will display **PASS**:
    - `test-1` to `test-3`: File validation (PNG, JPEG, WEBP, size limits).
    - `test-4`: Image corruption detection.
    - `test-5` & `test-6`: Center-crop square slice and 512×512 downscaling.
@@ -202,19 +255,22 @@ To verify Google authentication URL building, redirect parsing, high-res photo t
    - `test-11`: Multi-profile isolation simulation.
    - `test-12`: Object URL memory safety.
    - `test-13` to `test-16`: Empty state reporting, removal idempotency, corrupt data fallback, profile name independence.
-   - `test-17`: Google services loading and instantiation.
-   - `test-18`: Google auth URL builder (endpoints, scopes, prompt=select_account).
-   - `test-19`: OAuth redirect parser (token and expiry extraction).
-   - `test-20`: OAuth error and cancellation handling.
-   - `test-21`: Google photo URL high-res transformation (`=s512-c`).
-   - `test-22`: Google photo Blob pipeline through image-processor to 1:1 PNG.
-   - `test-23`: Google source metadata persistence in IndexedDB.
-   - `test-24`: Google disconnect leaves locally stored avatar intact.
-   - `test-25`: Multi-profile isolation between Google and local avatars.
+   - `test-17` to `test-20`: Google services loading, auth URL builder, OAuth redirect parsing, cancellation error handling.
+   - `test-21` & `test-22`: Google photo URL high-res transformation (`=s512-c`) and mock processing pipeline.
+   - `test-23` to `test-25`: Google metadata persistence, disconnect avatar preservation, and Google multi-profile isolation.
+   - `test-26`: ToastController styling, auto-dismiss (3.5s), and action callback.
+   - `test-27`: ToastController error sanitization (translates technical errors to friendly instructions).
+   - `test-28`: ModalManager single-dialog enforcement (no overlapping modals).
+   - `test-29`: ModalManager keyboard accessibility (Escape key dismissal).
+   - `test-30`: Button system hierarchy (Primary, Secondary, Danger, Google) and disabled state handling.
+   - `test-31`: Empty vs active state DOM rendering.
+   - `test-32`: Secondary source indicator formatting (Computer vs Google).
+   - `test-33`: Accessible dialog semantics (`role="dialog"`, `aria-modal="true"`, labels).
+   - `test-34`: CSS stylesheet media query verification (`prefers-reduced-motion` and `prefers-color-scheme`).
 
 ---
 
-## 6. How to Load and Test Across Multiple Brave Profiles
+## 7. How to Load and Test Across Multiple Brave Profiles
 
 ### Loading in Profile A (e.g., "Personal"):
 1. Open Brave in your first profile.
@@ -225,9 +281,9 @@ To verify Google authentication URL building, redirect parsing, high-res photo t
    C:\Users\ahmad\Documents\brave profile image
    ```
 5. Click the extension icon in the Brave toolbar.
-6. Click **📷 Add Image**.
+6. Click **📷 Add Avatar**.
 7. In the **Choose Avatar Source** sheet:
-   - Click **📁 Choose from Computer** to select a local photo (`imageA.png`), OR
+   - Click **📁 Upload from Computer** to select a local photo (`imageA.png`), OR
    - Click **🌐 Use Google Account** to connect your Google account and import your profile photo!
 8. Notice the avatar renders crisp and centered. Status displays **Custom avatar active**.
 
@@ -236,7 +292,7 @@ To verify Google authentication URL building, redirect parsing, high-res photo t
 2. Navigate to `brave://extensions` and click **Load unpacked** (select the same folder).
 3. Open the extension popup:
    - Profile B shows **No custom avatar**—**Profile A's image is NOT present**!
-4. Click **📷 Add Image** and choose a different image or connect a different Google account.
+4. Click **📷 Add Avatar** and choose a different image or connect a different Google account.
 5. Profile B now displays its own independent avatar.
 
 ### Offline & Persistence Verification:
