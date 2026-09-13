@@ -40,6 +40,14 @@ export function validateImageFile(file) {
     return { valid: false, error: 'No file was selected.' };
   }
 
+  // Check empty file (0 bytes)
+  if (!file.size || file.size === 0) {
+    return {
+      valid: false,
+      error: 'The selected file is empty (0 bytes). Please choose a valid image file.'
+    };
+  }
+
   // Normalize and check MIME type
   let mimeType = file.type ? file.type.toLowerCase() : '';
 

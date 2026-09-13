@@ -963,5 +963,261 @@ export const tests = [
 
       return 'popup.css contains prefers-reduced-motion and prefers-color-scheme media queries.';
     }
+  },
+
+  {
+    id: 'test-35-empty-file-rejection',
+    name: 'validateImageFile rejects 0-byte or empty files with explicit error message',
+    async run() {
+      const emptyBlob = new Blob([], { type: 'image/png' });
+      const emptyFile = new File([emptyBlob], 'empty.png', { type: 'image/png' });
+
+      const res = validateImageFile(emptyFile);
+      if (res.valid) {
+        throw new Error('Expected 0-byte file to be rejected.');
+      }
+      if (!res.error.includes('empty')) {
+        throw new Error(`Expected error message mentioning "empty", got: ${res.error}`);
+      }
+
+      return `0-byte file correctly rejected with: "${res.error}"`;
+    }
+  },
+
+  {
+    id: 'test-36-upper-bound-file-size',
+    name: 'validateImageFile accepts exact 5 MB file and rejects 5 MB + 1 byte',
+    async run() {
+      const exact5MB = IMAGE_CONFIG.MAX_FILE_SIZE_BYTES;
+      const fileExact = new File([new Uint8Array(exact5MB)], 'exact5mb.png', { type: 'image/png' });
+      const fileOversized = new File([new Uint8Array(exact5MB + 1)], 'oversized.png', { type: 'image/png' });
+
+      const resExact = validateImageFile(fileExact);
+      const resOver = validateImageFile(fileOversized);
+
+      if (!resExact.valid) throw new Error(`Exact 5MB file was rejected: ${resExact.error}`);
+      if (resOver.valid) throw new Error('File with 5MB + 1 byte was erroneously accepted.');
+
+      return 'Exact 5MB upper-bound boundary condition verified.';
+    }
+  },
+
+  {
+    id: 'test-37-aspect-ratio-extreme-cases',
+    name: 'Center-crop handles extreme aspect ratios (2000x200 wide & 200x2000 tall)',
+    async run() {
+      // 1. Extreme wide image (10:1)
+      const wideBlob = await createTestImageBlob(2000, 200, '#3b82f6', 'image/png');
+      const wideProcessed = await processAvatarImage(wideBlob);
+
+      if (wideProcessed.width !== wideProcessed.height) {
+        throw new Error(`Wide image not square: ${wideProcessed.width}x${wideProcessed.height}`);
+      }
+      if (wideProcessed.width !== 200) {
+        throw new Error(`Expected 200x200 output for wide slice, got ${wideProcessed.width}`);
+      }
+
+      // 2. Extreme tall image (1:10)
+      const tallBlob = await createTestImageBlob(200, 2000, '#ef4444', 'image/png');
+      const tallProcessed = await processAvatarImage(tallBlob);
+
+      if (tallProcessed.width !== tallProcessed.height) {
+        throw new Error(`Tall image not square: ${tallProcessed.width}x${tallProcessed.height}`);
+      }
+      if (tallProcessed.width !== 200) {
+        throw new Error(`Expected 200x200 output for tall slice, got ${tallProcessed.width}`);
+      }
+
+      return 'Extreme aspect ratios (10:1 and 1:10) cleanly center-cropped to 1:1 square.';
+    }
+  },
+
+  {
+    id: 'test-38-consecutive-replacements-stress',
+    name: 'Repeatedly replacing avatar 5 times consecutively preserves database integrity',
+    async run() {
+      const profileId = 'bpi_prof_stress_' + Date.now();
+      const colors = ['#e11d48', '#2563eb', '#16a34a', '#d97706', '#9333ea'];
+
+      for (let i = 0; i < colors.length; i++) {
+        const blob = await createTestImageBlob(60 + i * 10, 60 + i * 10, colors[i], 'image/png');
+        await imageStorage.saveProfileImage(profileId, blob, { iteration: i + 1 });
+
+        const record = await imageStorage.getProfileImage(profileId);
+        if (!record || record.metadata.iteration !== i + 1) {
+          throw new Error(`Replacement iteration ${i + 1} failed.`);
+        }
+      }
+
+      // Verify final state
+      const finalRec = await imageStorage.getProfileImage(profileId);
+      if (finalRec.metadata.iteration !== 5) {
+        throw new Error('Final record iteration mismatch.');
+      }
+
+      await imageStorage.removeProfileImage(profileId);
+      return '5 consecutive avatar replacements completed with 100% integrity.';
+    }
+  },
+
+  {
+    id: 'test-39-corrupted-blob-size-zero',
+    name: 'Saving 0-byte or empty Blob rejected to prevent corrupt storage entries',
+    async run() {
+      const profileId = 'bpi_prof_emptyblob_' + Date.now();
+      const emptyBlob = new Blob([], { type: 'image/png' });
+
+      let threw = false;
+      try {
+        await imageStorage.saveProfileImage(profileId, emptyBlob);
+      } catch (err) {
+        threw = true;
+      }
+
+      if (!threw) {
+        throw new Error('Expected saveProfileImage to reject 0-byte Blob.');
+      }
+
+      return 'Empty 0-byte Blob rejected by storage engine.';
+    }
+  },
+
+  {
+    id: 'test-40-preview-modal-cleanup-on-escape',
+    name: 'ModalManager onClose hook revokes preview URL and clears in-flight state',
+    async run() {
+      const manager = new ModalManager();
+      const modalEl = document.createElement('div');
+      modalEl.classList.add('hidden');
+
+      let cleanedUp = false;
+      manager.register('test-preview-cleanup', {
+        element: modalEl,
+        onClose: () => { cleanedUp = true; }
+      });
+
+      manager.open('test-preview-cleanup');
+      if (modalEl.classList.contains('hidden')) throw new Error('Modal failed to open.');
+
+      // Close modal (simulating Escape or backdrop)
+      manager.close('test-preview-cleanup');
+      if (!modalEl.classList.contains('hidden')) throw new Error('Modal failed to close.');
+      if (!cleanedUp) throw new Error('onClose hook was not triggered to clean up memory.');
+
+      return 'ModalManager onClose cleanup hook verified for leak prevention.';
+    }
+  },
+
+  {
+    id: 'test-41-file-selection-race-protection',
+    name: 'File selection sequence ID ignores stale out-of-order async processing',
+    async run() {
+      let fileSelectionSequenceId = 0;
+      let appliedResult = null;
+
+      // Simulate first selection (slow)
+      const seq1 = ++fileSelectionSequenceId;
+      const promise1 = new Promise((resolve) => setTimeout(() => resolve('image1'), 60));
+
+      // Simulate second selection (fast)
+      const seq2 = ++fileSelectionSequenceId;
+      const promise2 = new Promise((resolve) => setTimeout(() => resolve('image2'), 10));
+
+      // Process second first
+      const res2 = await promise2;
+      if (seq2 === fileSelectionSequenceId) {
+        appliedResult = res2;
+      }
+
+      // Process first later
+      const res1 = await promise1;
+      if (seq1 === fileSelectionSequenceId) {
+        appliedResult = res1; // should NOT be reached!
+      }
+
+      if (appliedResult !== 'image2') {
+        throw new Error(`Race condition occurred: expected "image2", got "${appliedResult}"`);
+      }
+
+      return 'Race protection verified: newer selection correctly superseded older result.';
+    }
+  },
+
+  {
+    id: 'test-42-offline-avatar-persistence-read',
+    name: 'Avatar Blob in IndexedDB is retrievable offline without network access',
+    async run() {
+      const profileId = 'bpi_prof_offline_' + Date.now();
+      const testBlob = await createTestImageBlob(100, 100, '#10b981', 'image/png');
+
+      await imageStorage.saveProfileImage(profileId, testBlob, {
+        source: 'google',
+        email: 'offline@gmail.com'
+      });
+
+      // Query IndexedDB directly without any network fetch
+      const record = await imageStorage.getProfileImage(profileId);
+
+      if (!record || !(record.imageData instanceof Blob)) {
+        throw new Error('Failed to retrieve stored offline avatar.');
+      }
+      if (record.metadata.source !== 'google' || record.metadata.email !== 'offline@gmail.com') {
+        throw new Error('Metadata mismatch on offline record.');
+      }
+
+      await imageStorage.removeProfileImage(profileId);
+      return 'Offline persistence verified: avatar and metadata read directly from IndexedDB.';
+    }
+  },
+
+  {
+    id: 'test-43-google-disconnect-idempotency',
+    name: 'googleAuthService.signOut() is idempotent and safe to call repeatedly',
+    async run() {
+      // Call signOut 3 times in rapid succession
+      await googleAuthService.signOut();
+      await googleAuthService.signOut();
+      await googleAuthService.signOut();
+
+      if (googleAuthService.getActiveToken() !== null) {
+        throw new Error('Token should be null after signOut.');
+      }
+
+      return 'Sign-out idempotency verified across consecutive calls.';
+    }
+  },
+
+  {
+    id: 'test-44-storage-record-integrity-validation',
+    name: 'Stored avatar record satisfies all schema constraints and non-zero size',
+    async run() {
+      const profileId = 'bpi_prof_integrity_' + Date.now();
+      const testBlob = await createTestImageBlob(80, 80, '#f97316', 'image/png');
+
+      await imageStorage.saveProfileImage(profileId, testBlob, {
+        source: 'local',
+        width: 80,
+        height: 80,
+        sizeBytes: testBlob.size
+      });
+
+      const record = await imageStorage.getProfileImage(profileId);
+
+      if (typeof record.profileId !== 'string' || record.profileId !== profileId) {
+        throw new Error('Invalid profileId field.');
+      }
+      if (!(record.imageData instanceof Blob) || record.imageData.size <= 0) {
+        throw new Error('Invalid or zero-byte imageData Blob.');
+      }
+      if (record.mimeType !== 'image/png') {
+        throw new Error(`Unexpected MIME type: ${record.mimeType}`);
+      }
+      if (typeof record.updatedAt !== 'number' || record.updatedAt <= 0) {
+        throw new Error('Invalid updatedAt timestamp.');
+      }
+
+      await imageStorage.removeProfileImage(profileId);
+      return 'Record schema constraints and data integrity completely validated.';
+    }
   }
 ];

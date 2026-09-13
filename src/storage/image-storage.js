@@ -129,8 +129,8 @@ class ImageStorageService {
     if (!profileId || typeof profileId !== 'string') {
       throw new TypeError('A valid string profileId is required to save an image.');
     }
-    if (!imageData) {
-      throw new TypeError('imageData cannot be null or undefined.');
+    if (!imageData || (imageData instanceof Blob && imageData.size === 0)) {
+      throw new TypeError('imageData cannot be null, undefined, or an empty Blob (0 bytes).');
     }
 
     const db = await this.getDatabase();

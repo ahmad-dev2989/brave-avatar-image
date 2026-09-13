@@ -34,6 +34,7 @@ let activeAvatarUrl = null;
 let previewAvatarUrl = null;
 let inFlightProcessedImage = null;
 let isOperationInProgress = false;
+let fileSelectionSequenceId = 0;
 
 // Reusable UI controllers
 let toast = null;
@@ -45,7 +46,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Set extension version badge
   const versionBadge = document.getElementById('versionBadge');
   if (versionBadge) {
-    versionBadge.textContent = `v${EXTENSION_CONFIG.VERSION} • Phase 6`;
+    versionBadge.textContent = `v${EXTENSION_CONFIG.VERSION} • Phase 7`;
   }
 
   // Initialize Toast and Modal controllers
@@ -96,7 +97,15 @@ function initializeControllers() {
 
   modalManager.register('image-preview', {
     element: document.getElementById('imagePreviewCard'),
-    closeButtons: [document.getElementById('btnCancelImage')]
+    closeButtons: [document.getElementById('btnCancelImage')],
+    onClose: () => {
+      // Free in-flight processed image and revoke preview object URL on ANY modal dismissal
+      if (previewAvatarUrl) {
+        revokeObjectUrl(previewAvatarUrl);
+        previewAvatarUrl = null;
+      }
+      inFlightProcessedImage = null;
+    }
   });
 }
 
@@ -126,7 +135,7 @@ async function loadProfileAndAvatar() {
       log.warn('Storage read warning (falling back gracefully):', storageErr);
     }
 
-    if (avatarRecord && avatarRecord.imageData && avatarRecord.imageData instanceof Blob) {
+    if (avatarRecord && avatarRecord.imageData && avatarRecord.imageData instanceof Blob && avatarRecord.imageData.size > 0) {
       // Transition to Active State
       renderActiveState(avatarRecord);
     } else {
@@ -181,6 +190,25 @@ function renderActiveState(avatarRecord) {
   activeAvatarUrl = createObjectUrl(avatarRecord.imageData);
 
   if (profileAvatarImg) {
+    // Attach error fallback to handle corrupt or unrenderable image blobs safely
+    profileAvatarImg.onerror = () => {
+      log.warn('Avatar image failed to render. Falling back to neutral placeholder.');
+      if (activeAvatarUrl) {
+        revokeObjectUrl(activeAvatarUrl);
+        activeAvatarUrl = null;
+      }
+      profileAvatarImg.src = '';
+      profileAvatarImg.classList.add('hidden');
+      if (profileAvatarEmpty) profileAvatarEmpty.classList.remove('hidden');
+      if (avatarStatusBadge && avatarStatusText) {
+        avatarStatusBadge.className = 'status-pill status-pill-empty';
+        avatarStatusText.textContent = 'Image display error';
+      }
+      if (toast) {
+        toast.show('Saved avatar could not be displayed. Please choose a new image.', 'warning');
+      }
+    };
+
     profileAvatarImg.src = activeAvatarUrl;
     profileAvatarImg.classList.remove('hidden');
   }
@@ -380,14 +408,18 @@ function setupProfileNameEditor() {
   if (profileEditForm && profileNameDisplay && inputProfileName) {
     profileEditForm.addEventListener('submit', async (e) => {
       e.preventDefault();
+      if (isOperationInProgress) return;
       const newName = inputProfileName.value.trim();
       if (newName) {
         try {
+          setOperationState(true);
           const updated = await profileService.updateProfileName(newName);
           if (profileNameText) profileNameText.textContent = updated.name;
         } catch (err) {
           log.error('Failed to rename profile:', err);
           if (toast) toast.show('Failed to save profile name.', 'error');
+        } finally {
+          setOperationState(false);
         }
       }
       profileEditForm.classList.add('hidden');
@@ -557,7 +589,9 @@ function setupGoogleFlow() {
   // Disconnect Google Account Session (preserves local avatar in IndexedDB)
   if (btnDisconnectGoogle) {
     btnDisconnectGoogle.addEventListener('click', async () => {
+      if (isOperationInProgress) return;
       try {
+        setOperationState(true);
         await googleAuthService.signOut();
         const avatarSourceTag = document.getElementById('avatarSourceTag');
         const avatarSourceIcon = document.getElementById('avatarSourceIcon');
@@ -572,6 +606,8 @@ function setupGoogleFlow() {
         }
       } catch (err) {
         log.error('Failed to disconnect Google account:', err);
+      } finally {
+        setOperationState(false);
       }
     });
   }
@@ -598,6 +634,7 @@ function setupLocalImageActions() {
       if (!files || files.length === 0) return;
 
       const file = files[0];
+      const seq = ++fileSelectionSequenceId;
 
       // Validate constraints (MIME type, size <= 5 MB)
       const validation = validateImageFile(file);
@@ -610,6 +647,13 @@ function setupLocalImageActions() {
       try {
         setOperationState(true);
         const processed = await processAvatarImage(file);
+
+        // Verify that this is still the most recent selection (race protection)
+        if (seq !== fileSelectionSequenceId) {
+          log.info('Discarding stale out-of-order file processing result.');
+          return;
+        }
+
         inFlightProcessedImage = processed;
 
         // Revoke previous preview URL

@@ -7,8 +7,8 @@
 
 export const EXTENSION_CONFIG = {
   NAME: 'Brave Profile Images',
-  VERSION: '0.6.0',
-  PHASE: 'Phase 6 - UI/UX Polish and Production-Quality Interface'
+  VERSION: '0.7.0',
+  PHASE: 'Phase 7 - Persistence, Edge-Case Testing & Reliability Hardening'
 };
 
 export const DB_CONFIG = {

@@ -202,8 +202,8 @@ brave-profile-image/
 │       └── logger.js             # Scoped console logging utility
 │
 └── tests/
-    ├── test-runner.html          # Interactive browser test runner page (Phase 6)
-    └── test-suite.js             # 34 automated unit and integration tests
+    ├── test-runner.html          # Interactive browser test runner page (Phase 7)
+    └── test-suite.js             # 44 automated unit and integration tests
 ```
 
 ---
@@ -238,16 +238,16 @@ brave-profile-image/
 
 ---
 
-## 6. Running the Automated Test Suite
+## 6. Running the Automated Test Suite (Phase 7 Hardening)
 
-To verify Google authentication URL building, redirect parsing, high-res photo transformations, image processing, binary IndexedDB persistence, toast notifications, modal accessibility, and multi-profile isolation:
+To verify Google authentication URL building, redirect parsing, high-res photo transformations, image processing, binary IndexedDB persistence, toast notifications, modal accessibility, and reliability edge cases:
 
 1. Open Brave Browser.
 2. Open a new tab and navigate to:
    ```text
    file:///c:/Users/ahmad/Documents/brave profile image/tests/test-runner.html
    ```
-3. All **34 automated test cases** execute live. All 34 will display **PASS**:
+3. All **44 automated test cases** execute live. All 44 will display **PASS**:
    - `test-1` to `test-3`: File validation (PNG, JPEG, WEBP, size limits).
    - `test-4`: Image corruption detection.
    - `test-5` & `test-6`: Center-crop square slice and 512×512 downscaling.
@@ -267,6 +267,16 @@ To verify Google authentication URL building, redirect parsing, high-res photo t
    - `test-32`: Secondary source indicator formatting (Computer vs Google).
    - `test-33`: Accessible dialog semantics (`role="dialog"`, `aria-modal="true"`, labels).
    - `test-34`: CSS stylesheet media query verification (`prefers-reduced-motion` and `prefers-color-scheme`).
+   - `test-35`: Empty 0-byte file validation rejection with explicit message.
+   - `test-36`: Upper-bound boundary check (exact 5MB accepted, 5MB + 1 byte rejected).
+   - `test-37`: Extreme aspect ratio handling (2000×200 and 200×2000 center-cropped to 1:1).
+   - `test-38`: Stress test of 5 consecutive avatar replacements with 100% integrity.
+   - `test-39`: Empty 0-byte Blob storage rejection preventing corrupted database entries.
+   - `test-40`: ModalManager `image-preview` onClose hook revoking object URLs and clearing in-flight memory.
+   - `test-41`: Asynchronous file selection race protection ignoring out-of-order stale results.
+   - `test-42`: Offline avatar persistence read directly from IndexedDB without network requests.
+   - `test-43`: Google account sign-out idempotency across consecutive calls.
+   - `test-44`: Storage record schema integrity and non-zero size constraints validation.
 
 ---
 
