@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Brave Profile Images",
-  "version": "0.4.0",
-  "description": "Local-first browser extension for managing and displaying custom profile avatars in Brave.",
+  "version": "0.5.0",
+  "description": "Local-first browser extension for managing and displaying custom and Google profile avatars in Brave.",
   "icons": {
     "16": "assets/icons/icon-16.png",
     "48": "assets/icons/icon-48.png",
@@ -22,6 +22,11 @@
     "type": "module"
   },
   "permissions": [
-    "storage"
+    "storage",
+    "identity"
+  ],
+  "host_permissions": [
+    "https://www.googleapis.com/*",
+    "https://*.googleusercontent.com/*"
   ]
 }

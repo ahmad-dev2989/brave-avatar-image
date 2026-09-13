@@ -7,8 +7,8 @@
 
 export const EXTENSION_CONFIG = {
   NAME: 'Brave Profile Images',
-  VERSION: '0.4.0',
-  PHASE: 'Phase 4 - Custom Profile UI'
+  VERSION: '0.5.0',
+  PHASE: 'Phase 5 - Google Account Profile Image Integration'
 };
 
 export const DB_CONFIG = {
@@ -27,7 +27,8 @@ export const STORAGE_KEYS = {
   PROFILE_DISPLAY_NAME: 'bpi_profile_display_name',
   PROFILE_CREATED_AT: 'bpi_profile_created_at',
   PROFILE_UPDATED_AT: 'bpi_profile_updated_at',
-  EXTENSION_INITIALIZED: 'extension_initialized_at'
+  EXTENSION_INITIALIZED: 'extension_initialized_at',
+  GOOGLE_CUSTOM_CLIENT_ID: 'bpi_google_custom_client_id'
 };
 
 export const IMAGE_CONFIG = {
@@ -40,4 +41,15 @@ export const IMAGE_CONFIG = {
   AVATAR_TARGET_SIZE: 512,
   // Default storage format: lossless PNG preserves crisp edges & transparency
   OUTPUT_MIME_TYPE: 'image/png'
+};
+
+export const GOOGLE_CONFIG = {
+  // Optional Google OAuth 2.0 Client ID created in Google Cloud Console
+  // Set your Client ID here or configure it in the extension UI
+  // See README.md for 2-minute setup instructions
+  CLIENT_ID: '',
+  AUTH_ENDPOINT: 'https://accounts.google.com/o/oauth2/v2/auth',
+  USERINFO_ENDPOINT: 'https://www.googleapis.com/oauth2/v3/userinfo',
+  // Minimal OAuth scopes: only request basic identity to obtain the profile photo
+  SCOPES: ['openid', 'profile', 'email']
 };

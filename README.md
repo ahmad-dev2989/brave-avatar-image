@@ -18,7 +18,7 @@ This project creates a **local-first extension** that enables assigning a custom
 
 ---
 
-## 2. Phase 4 Architecture: Custom Profile UI
+## 2. Phase 5 Architecture: Multi-Source Avatars & Local Storage
 
 ### 2.1 Profile Identification & Partition Isolation
 In Chromium-based browsers like Brave:
@@ -32,38 +32,120 @@ In Chromium-based browsers like Brave:
   3. Custom avatar images are stored directly in the profile partition's private IndexedDB.
   4. Internal profile instance IDs are kept in the developer diagnostics drawer and hidden from the main user-facing profile card.
 
-### 2.2 UI State Machine & Components
+### 2.2 Supported Avatar Sources
 
-The Phase 4 popup is structured around a resilient state machine:
+The extension supports two distinct ways to assign an avatar:
+1. **Choose from Computer**: Upload a local PNG, JPEG, or WEBP image.
+2. **Use Google Account**: Import your Google profile picture via official OAuth 2.0 and OpenID UserInfo API.
 
-| UI State | Avatar Display | Status Indicator | Available Actions |
-| :--- | :--- | :--- | :--- |
-| **Loading** | Animated skeleton pulse | Hidden | All actions disabled during loading |
-| **Empty** | Stylized SVG profile silhouette | `No custom avatar` (neutral pill) | `[ 📷 Add Image ]` |
-| **Active** | Circular custom avatar (80px, `object-fit: cover`) | `Custom avatar active` (green pulse) | `[ 🔄 Change Image ]`, `[ 🗑 Remove ]` |
-| **Preview** | 1:1 cropped square preview with file metadata | Preserved | `[ Save Avatar ]`, `[ Cancel ]` |
-| **Remove Confirm** | Preserved | Preserved | `[ Cancel ]`, `[ Remove ]` (destructive confirmation) |
-| **Error Recovery** | Preserved or graceful fallback to Empty | Error banner with `[ Retry ]` | Interactive retry button |
-
-### 2.3 Image Specifications & Storage Rules
-
-| Feature | Specification | Rationale |
-| :--- | :--- | :--- |
-| **Supported Formats** | PNG, JPEG/JPG, WEBP | Standard browser image formats supported universally. |
-| **Max Upload File Size** | 5 MB (`IMAGE_CONFIG.MAX_FILE_SIZE_BYTES`) | Enforces sensible disk limits while allowing high-resolution photos. |
-| **Cropping Strategy** | Automatic center-crop to 1:1 square | Avoids image stretching or distortion for circular avatar frames. |
-| **Avatar Output Dimension** | Max 512 × 512 px (high-DPI) | Crisp rendering across all scales (16px to 256px) with small file size (~20–80 KB). |
-| **Storage Engine** | **IndexedDB** (`BraveProfileImagesDB`) | Native binary `Blob` persistence eliminates ~33% Base64 expansion and JSON overhead. |
-| **Permissions Required** | `["storage"]` | Standard `<input type="file">` and `IndexedDB` run client-side without elevated permissions. |
+Both sources pass through the same client-side processing pipeline and are stored as local binary Blobs in IndexedDB.
 
 ---
 
-## 3. Project Structure
+## 3. Google Account Integration
+
+### 3.1 What the Feature Does
+Allows the user to authenticate with their Google Account, select an account if multiple are active, and import their Google profile photo as the avatar for the active Brave profile. The photo is downloaded, center-cropped into an exact 1:1 square, resized up to 512×512, and stored completely offline in the profile's local IndexedDB.
+
+### 3.2 Required Google Cloud Configuration (2-Minute Setup)
+To enable Google account sign-in for your local extension:
+1. Open the [Google Cloud Console](https://console.cloud.google.com/).
+2. Create a new project (e.g. *"Brave Profile Images"*).
+3. Go to **APIs & Services** → **OAuth consent screen**:
+   - User Type: **External** (or Internal if using Google Workspace).
+   - App Name: *"Brave Profile Images"*.
+   - User Support Email: your email.
+   - Developer Contact Info: your email.
+   - Scopes: Add `.../auth/userinfo.profile`, `.../auth/userinfo.email`, `openid`.
+   - Test Users: Add your Google email address while in Testing mode.
+4. Go to **Credentials** → **Create Credentials** → **OAuth client ID**:
+   - Application Type: **Web application** (or **Chrome extension**).
+   - Authorized redirect URIs:
+     Add your extension's redirect URI:
+     ```text
+     https://<your-extension-id>.chromiumapp.org/
+     ```
+     *(You can find your extension ID in `brave://extensions` with Developer mode enabled, or click "Profile & Diagnostics" in the extension popup).*
+5. Copy the **Client ID** (e.g. `1234567890-abcdef.apps.googleusercontent.com`).
+   *(Note: You do NOT need the Client Secret. Client secrets must NEVER be put in an extension).*
+
+### 3.3 Required API(s)
+- **Google People API** or **OpenID Connect UserInfo API** (`https://www.googleapis.com/oauth2/v3/userinfo`).
+
+### 3.4 Required OAuth Scopes
+- `openid`: OpenID Connect identifier.
+- `profile`: Access to user's name and high-resolution profile photo URL.
+- `email`: Basic email address display for account verification.
+*(Zero access to Gmail, Google Drive, Calendar, Contacts, or user files is requested).*
+
+### 3.5 Permissions in `manifest.json`
+- `"identity"`: Required for `chrome.identity.launchWebAuthFlow()`.
+- `"host_permissions"`:
+  - `"https://www.googleapis.com/*"` (Userinfo API)
+  - `"https://*.googleusercontent.com/*"` (Profile photo downloading)
+
+### 3.6 Where the Client ID Goes
+You can configure your Client ID in either of two places:
+1. **In the Code**: Open [`src/utils/constants.js`](file:///c:/Users/ahmad/Documents/brave%20profile%20image/src/utils/constants.js) and set `GOOGLE_CONFIG.CLIENT_ID`:
+   ```javascript
+   export const GOOGLE_CONFIG = {
+     CLIENT_ID: 'YOUR_CLIENT_ID_HERE.apps.googleusercontent.com',
+     ...
+   };
+   ```
+2. **In the Extension UI**: Click **Add Image** → **Use Google Account** → paste your Client ID into the input field and click **Save**. It will be securely remembered in `chrome.storage.local`.
+
+### 3.7 How to Authorize Google
+1. Click **📷 Add Image** or **🔄 Change Image**.
+2. Click **🌐 Use Google Account**.
+3. Click **Connect Google Account**.
+4. Brave will open the Google sign-in window. Select your Google account and grant basic profile access.
+5. The extension will automatically download the photo, optimize it, and display it as your avatar.
+
+### 3.8 How the Image Is Stored
+- The Google photo is converted into a binary **`Blob`** (`image/png`) and saved directly into the profile partition's IndexedDB (`BraveProfileImagesDB`, store `profile_images`).
+- **No external hosting**: The image is NOT stored on any server or third-party cloud. It lives 100% locally on your computer.
+
+### 3.9 What Data Is Stored Locally
+- Stored record metadata:
+  ```json
+  {
+    "source": "google",
+    "provider": "google",
+    "accountId": "1092837465...",
+    "email": "user@gmail.com",
+    "displayName": "Alex Smith",
+    "sourceImageUrl": "https://lh3.googleusercontent.com/a/...",
+    "importedAt": 1726250000000
+  }
+  ```
+
+### 3.10 What Data Is NOT Stored
+- ❌ NO Google passwords.
+- ❌ NO long-lived OAuth refresh tokens or permanent credentials.
+- ❌ NO client secrets.
+- ❌ NO browser cookies or Google session tokens.
+- ❌ NO browsing history or telemetry.
+
+### 3.11 How to Disconnect
+- When an active avatar originated from Google, an account badge is shown: `Google Account: user@gmail.com [Disconnect]`.
+- Clicking **Disconnect** terminates the in-memory Google session.
+- **Important**: Disconnecting Google will **NOT** delete your saved avatar! Your locally stored avatar remains active until you explicitly click **Remove**.
+
+### 3.12 Troubleshooting
+- **"Google OAuth Client ID is not configured"**: Set your Client ID in `constants.js` or paste it in the popup.
+- **"User cancelled"**: The Google sign-in window was closed before completing consent. Click "Connect Google Account" to try again.
+- **"Redirect URI mismatch"**: Verify that `https://<your-extension-id>.chromiumapp.org/` is listed in your Google Cloud Console Authorized Redirect URIs.
+- **"Access denied"**: Ensure you added your Google email address as a Test User in the OAuth consent screen.
+
+---
+
+## 4. Project Structure
 
 ```text
 brave-profile-image/
 │
-├── manifest.json                 # Manifest V3 extension configuration (v0.4.0)
+├── manifest.json                 # Manifest V3 extension configuration (v0.5.0)
 ├── .gitignore                    # Local and editor ignore patterns
 ├── README.md                     # Project documentation & multi-profile testing guide
 │
@@ -74,10 +156,14 @@ brave-profile-image/
 │   ├── background/
 │   │   └── background.js         # Service worker handling installation lifecycle
 │   │
+│   ├── google/
+│   │   ├── google-auth-service.js    # OAuth 2.0 launchWebAuthFlow controller & token manager
+│   │   └── google-profile-service.js # Google Userinfo & high-res photo download pipeline
+│   │
 │   ├── popup/
-│   │   ├── popup.html            # Redesigned profile avatar manager UI (Phase 4)
-│   │   ├── popup.css             # Modern dark-mode aesthetic styling & focus rings
-│   │   └── popup.js              # State machine controller, preview, confirmation, lifecycle
+│   │   ├── popup.html            # Profile card, source selector, Google card, diagnostics
+│   │   ├── popup.css             # Modern dark-mode styling & Google action components
+│   │   └── popup.js              # State machine controller with Google & local image support
 │   │
 │   ├── storage/
 │   │   └── image-storage.js      # Promise-based IndexedDB binary storage engine
@@ -87,48 +173,48 @@ brave-profile-image/
 │   │   └── profile-service.js    # Self-scoped profile manager and storage adapter
 │   │
 │   └── utils/
-│       ├── constants.js          # Shared configuration and image limits (v0.4.0)
-│       ├── diagnostics.js        # Environment and API probe collector
+│       ├── constants.js          # Shared configuration, Google endpoints & limits (v0.5.0)
+│       ├── diagnostics.js        # Environment, storage, and identity probe collector
 │       ├── image-processor.js    # Validation, decoding, center-cropping, and resizing
 │       └── logger.js             # Formatted console logging helper
 │
 └── tests/
-    ├── test-runner.html          # Interactive browser test runner page (Phase 4)
-    └── test-suite.js             # 16 automated unit and integration tests
+    ├── test-runner.html          # Interactive browser test runner page (Phase 5)
+    └── test-suite.js             # 25 automated unit and integration tests
 ```
 
 ---
 
-## 4. Running the Automated Test Suite
+## 5. Running the Automated Test Suite
 
-To verify image validation, decoding, center-cropping, downscaling, IndexedDB binary persistence, state machine resilience, and multi-profile isolation:
+To verify Google authentication URL building, redirect parsing, high-res photo transformations, image processing, binary IndexedDB persistence, and multi-profile isolation:
 
 1. Open Brave Browser.
 2. Open a new tab and navigate to:
    ```text
    file:///c:/Users/ahmad/Documents/brave profile image/tests/test-runner.html
    ```
-3. All 16 automated test cases will execute and report live status. All 16 should display **PASS**:
-   - `test-1`: Validation accepts PNG, JPEG, WEBP.
-   - `test-2`: Validation rejects invalid MIME types (text, pdf, exe).
-   - `test-3`: Validation rejects images > 5 MB.
-   - `test-4`: Decoding detects and rejects corrupted/fake image data.
-   - `test-5`: Image processor center-crops rectangular images to 1:1 square.
-   - `test-6`: Downscaling large images to target max 512×512.
-   - `test-7`: IndexedDB saves and retrieves binary Blobs without Base64 overhead.
-   - `test-8`: `hasProfileImage()` accurately reports record existence.
-   - `test-9`: Image replacement cleanly overwrites previous record.
-   - `test-10`: Image removal cleanly deletes record from IndexedDB.
-   - `test-11`: Multi-profile isolation simulation prevents data leakage.
-   - `test-12`: Object URL creation and revocation safety.
-   - `test-13`: Empty state correctly reported when profile has no custom avatar.
-   - `test-14`: Removing image from an empty profile succeeds gracefully without throwing.
-   - `test-15`: Corrupt/non-Blob storage entries are handled without crashing.
-   - `test-16`: Profile display name updates and avatar storage remain fully independent.
+3. All 25 automated test cases will execute and report live status. All 25 should display **PASS**:
+   - `test-1` to `test-3`: File validation (PNG, JPEG, WEBP, size limits).
+   - `test-4`: Image corruption detection.
+   - `test-5` & `test-6`: Center-crop square slice and 512×512 downscaling.
+   - `test-7` to `test-10`: IndexedDB binary persistence, existence checks, image replacement, clean removal.
+   - `test-11`: Multi-profile isolation simulation.
+   - `test-12`: Object URL memory safety.
+   - `test-13` to `test-16`: Empty state reporting, removal idempotency, corrupt data fallback, profile name independence.
+   - `test-17`: Google services loading and instantiation.
+   - `test-18`: Google auth URL builder (endpoints, scopes, prompt=select_account).
+   - `test-19`: OAuth redirect parser (token and expiry extraction).
+   - `test-20`: OAuth error and cancellation handling.
+   - `test-21`: Google photo URL high-res transformation (`=s512-c`).
+   - `test-22`: Google photo Blob pipeline through image-processor to 1:1 PNG.
+   - `test-23`: Google source metadata persistence in IndexedDB.
+   - `test-24`: Google disconnect leaves locally stored avatar intact.
+   - `test-25`: Multi-profile isolation between Google and local avatars.
 
 ---
 
-## 5. How to Load and Test Across Multiple Brave Profiles
+## 6. How to Load and Test Across Multiple Brave Profiles
 
 ### Loading in Profile A (e.g., "Personal"):
 1. Open Brave in your first profile.
@@ -138,45 +224,23 @@ To verify image validation, decoding, center-cropping, downscaling, IndexedDB bi
    ```text
    C:\Users\ahmad\Documents\brave profile image
    ```
-5. Click the extension icon in the Brave toolbar:
-   - Notice the clean, modern interface: Profile name, default avatar placeholder, and **No custom avatar** status pill.
-   - Notice no technical identifiers (`bpi_prof_...`) are visible on the main card.
-6. Click the pencil icon (✎) next to the profile name, enter *"Personal"*, and click **Save**.
-7. Click **📷 Add Image** (or click the avatar circle).
-8. Select an image (`imageA.png`) from your computer.
-9. Notice the **New Avatar Preview** card showing the 1:1 square preview and file metadata.
-10. Click **Save Avatar**:
-    - The avatar circle immediately renders `imageA` with a circular frame and subtle glow.
-    - Status pill updates to **Custom avatar active** with a glowing green dot.
-    - Actions switch to **🔄 Change Image** and **🗑 Remove**.
+5. Click the extension icon in the Brave toolbar.
+6. Click **📷 Add Image**.
+7. In the **Choose Avatar Source** sheet:
+   - Click **📁 Choose from Computer** to select a local photo (`imageA.png`), OR
+   - Click **🌐 Use Google Account** to connect your Google account and import your profile photo!
+8. Notice the avatar renders crisp and centered. Status displays **Custom avatar active**.
 
-### Loading in Profile B (e.g., "Uni" or "Work"):
+### Loading in Profile B (e.g., "Work"):
 1. Switch to a second Brave profile via Brave's profile avatar icon in the window frame.
-2. Navigate to `brave://extensions`.
-3. Enable **Developer mode** and click **Load unpacked** (select the same folder).
-4. Open the extension popup in this second profile:
-   - Notice the profile name is at its default *"Brave Profile"*.
-   - Notice the avatar shows the default placeholder and **No custom avatar**—**`imageA` is NOT present**!
-5. Click **📷 Add Image** and select a different image (`imageB.png`).
-6. Click **Save Avatar**:
-   - Profile B now shows `imageB` with **Custom avatar active**.
+2. Navigate to `brave://extensions` and click **Load unpacked** (select the same folder).
+3. Open the extension popup:
+   - Profile B shows **No custom avatar**—**Profile A's image is NOT present**!
+4. Click **📷 Add Image** and choose a different image or connect a different Google account.
+5. Profile B now displays its own independent avatar.
 
-### Multi-Profile Independence & Verification:
-1. **Switch back to Profile A**:
-   - Open the extension popup: **`imageA` is still active and unchanged**!
-   - `imageB` did not contaminate Profile A.
-2. **Close Brave completely** (close all windows and processes).
-3. **Reopen Brave**:
-   - Profile A retains `imageA` and its custom name.
-   - Profile B retains `imageB` and its custom name.
-4. **Change Image**:
-   - In Profile A, click **Change Image**, pick a new image (`imageA2.png`), and click **Save Avatar**.
-   - Verify `imageA2` replaced `imageA` smoothly.
-5. **Remove Confirmation**:
-   - In Profile A, click **Remove**.
-   - An inline prompt appears: *"Remove this custom avatar? [Cancel] [Remove]"*.
-   - Click **Cancel**: The prompt closes and the avatar remains intact.
-   - Click **Remove** again, then click **Remove**:
-     - The avatar is deleted from IndexedDB.
-     - The UI smoothly transitions back to the Empty State (placeholder avatar, "No custom avatar" status, and "Add Image" button).
-   - Switch to Profile B: Profile B's avatar remains active and intact.
+### Offline & Persistence Verification:
+1. Close and reopen Brave.
+2. Disconnect your internet connection.
+3. Open the extension popup in Profile A and Profile B.
+4. Both avatars continue displaying immediately from local IndexedDB with zero network requests.

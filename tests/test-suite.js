@@ -16,7 +16,7 @@
  * 12. Object URL creation and revocation safety
  */
 
-import { IMAGE_CONFIG } from '../src/utils/constants.js';
+import { IMAGE_CONFIG, GOOGLE_CONFIG } from '../src/utils/constants.js';
 import {
   validateImageFile,
   decodeAndValidateImage,
@@ -26,6 +26,8 @@ import {
   formatBytes
 } from '../src/utils/image-processor.js';
 import { imageStorage } from '../src/storage/image-storage.js';
+import { googleAuthService } from '../src/google/google-auth-service.js';
+import { googleProfileService } from '../src/google/google-profile-service.js';
 
 // Helper: Generates a test image Blob using OffscreenCanvas or HTMLCanvasElement
 async function createTestImageBlob(width, height, color = '#fb542b', mimeType = 'image/png') {
@@ -448,6 +450,247 @@ export const tests = [
       // Cleanup
       await imageStorage.removeProfileImage(testProfileId);
       return 'Profile name and avatar storage verified completely orthogonal.';
+    }
+  },
+
+  {
+    id: 'test-17-google-module-loading',
+    name: 'Google services load and instantiate cleanly with expected interface',
+    async run() {
+      if (!googleAuthService || typeof googleAuthService.signIn !== 'function') {
+        throw new Error('googleAuthService missing or invalid.');
+      }
+      if (!googleProfileService || typeof googleProfileService.importGoogleAvatar !== 'function') {
+        throw new Error('googleProfileService missing or invalid.');
+      }
+      return 'Google services instantiated with expected API methods.';
+    }
+  },
+
+  {
+    id: 'test-18-google-auth-url-builder',
+    name: 'Google auth URL builder produces correct OAuth 2.0 endpoint and parameters',
+    async run() {
+      const mockClientId = '123456-test.apps.googleusercontent.com';
+      const mockRedirectUri = 'https://abcdefghijklmnop.chromiumapp.org/';
+
+      const authUrlStr = googleAuthService.buildAuthUrl(mockClientId, mockRedirectUri);
+      const url = new URL(authUrlStr);
+
+      if (url.origin + url.pathname !== GOOGLE_CONFIG.AUTH_ENDPOINT) {
+        throw new Error(`Unexpected auth endpoint: ${url.origin + url.pathname}`);
+      }
+      if (url.searchParams.get('client_id') !== mockClientId) {
+        throw new Error('client_id parameter mismatch.');
+      }
+      if (url.searchParams.get('redirect_uri') !== mockRedirectUri) {
+        throw new Error('redirect_uri parameter mismatch.');
+      }
+      if (url.searchParams.get('response_type') !== 'token') {
+        throw new Error('response_type must be "token" for client-side extension.');
+      }
+      if (url.searchParams.get('prompt') !== 'select_account') {
+        throw new Error('prompt must be "select_account" to allow multi-account choice.');
+      }
+
+      const scopes = url.searchParams.get('scope').split(' ');
+      if (!scopes.includes('openid') || !scopes.includes('profile')) {
+        throw new Error('Scopes must include openid and profile.');
+      }
+
+      return 'OAuth 2.0 URL correctly constructed with minimal scopes & select_account prompt.';
+    }
+  },
+
+  {
+    id: 'test-19-google-oauth-redirect-parser-token',
+    name: 'OAuth redirect parser extracts access_token and expires_in from hash fragment',
+    async run() {
+      const mockRedirect = 'https://extid.chromiumapp.org/#access_token=ya29.mock_token_abc&token_type=Bearer&expires_in=3600';
+      const parsed = googleAuthService.parseRedirectUrl(mockRedirect);
+
+      if (parsed.accessToken !== 'ya29.mock_token_abc') {
+        throw new Error(`Token mismatch: expected "ya29.mock_token_abc", got "${parsed.accessToken}"`);
+      }
+      if (parsed.expiresIn !== 3600) {
+        throw new Error(`ExpiresIn mismatch: expected 3600, got ${parsed.expiresIn}`);
+      }
+      if (parsed.error) {
+        throw new Error(`Unexpected error in response: ${parsed.error}`);
+      }
+
+      return 'Successfully parsed access_token and expires_in from OAuth hash redirect.';
+    }
+  },
+
+  {
+    id: 'test-20-google-oauth-redirect-parser-error',
+    name: 'OAuth redirect parser handles access_denied and cancellation errors cleanly',
+    async run() {
+      const mockDeniedRedirect = 'https://extid.chromiumapp.org/#error=access_denied&error_description=User+denied';
+      const parsed = googleAuthService.parseRedirectUrl(mockDeniedRedirect);
+
+      if (parsed.error !== 'access_denied') {
+        throw new Error(`Expected error "access_denied", got "${parsed.error}"`);
+      }
+      if (!parsed.errorDescription) {
+        throw new Error('Missing errorDescription.');
+      }
+
+      return `Successfully handled OAuth error: "${parsed.errorDescription}"`;
+    }
+  },
+
+  {
+    id: 'test-21-google-photo-highres-url',
+    name: 'Google photo URL transformation requests high-resolution (=s512-c) image asset',
+    async run() {
+      const urlStandard = 'https://lh3.googleusercontent.com/a/ACg8ocK123=s96-c';
+      const urlRaw = 'https://lh3.googleusercontent.com/a/ACg8ocK123';
+
+      const highRes1 = googleProfileService.getHighResPhotoUrl(urlStandard, 512);
+      const highRes2 = googleProfileService.getHighResPhotoUrl(urlRaw, 512);
+
+      if (!highRes1.endsWith('=s512-c')) {
+        throw new Error(`Expected ending "=s512-c", got: ${highRes1}`);
+      }
+      if (!highRes2.includes('s512')) {
+        throw new Error(`Expected high-res size in raw URL, got: ${highRes2}`);
+      }
+
+      return `High-res URL resolved: ${highRes1}`;
+    }
+  },
+
+  {
+    id: 'test-22-google-photo-pipeline-mock',
+    name: 'Google photo Blob processes through image-processor to normalized 1:1 PNG avatar',
+    async run() {
+      // Simulate remote photo Blob
+      const mockGooglePhotoBlob = await createTestImageBlob(300, 300, '#4285f4', 'image/jpeg');
+
+      const processed = await processAvatarImage(mockGooglePhotoBlob, {
+        targetSize: 512,
+        outputMimeType: 'image/png'
+      });
+
+      if (processed.width !== 300 || processed.height !== 300) {
+        throw new Error(`Expected 300x300 avatar square, got ${processed.width}x${processed.height}`);
+      }
+      if (processed.mimeType !== 'image/png') {
+        throw new Error(`Expected image/png output, got ${processed.mimeType}`);
+      }
+      if (!(processed.blob instanceof Blob)) {
+        throw new Error('Output is not a valid Blob.');
+      }
+
+      return `Google photo processed to 1:1 PNG square (${formatBytes(processed.sizeBytes)}).`;
+    }
+  },
+
+  {
+    id: 'test-23-google-metadata-persistence',
+    name: 'IndexedDB accurately persists Google source metadata alongside binary Blob',
+    async run() {
+      const testProfileId = 'bpi_prof_gmeta_' + Date.now();
+      const testBlob = await createTestImageBlob(128, 128, '#34a853', 'image/png');
+
+      const googleMetadata = {
+        source: 'google',
+        provider: 'google',
+        accountId: '1092837465',
+        email: 'alex@example.com',
+        displayName: 'Alex Smith',
+        sourceImageUrl: 'https://lh3.googleusercontent.com/a/example=s512-c',
+        width: 128,
+        height: 128,
+        importedAt: Date.now()
+      };
+
+      await imageStorage.saveProfileImage(testProfileId, testBlob, googleMetadata);
+
+      const record = await imageStorage.getProfileImage(testProfileId);
+      if (!record || !record.metadata) {
+        throw new Error('Record or metadata not found in IndexedDB.');
+      }
+
+      if (record.metadata.source !== 'google' || record.metadata.email !== 'alex@example.com') {
+        throw new Error(`Metadata mismatch: ${JSON.stringify(record.metadata)}`);
+      }
+      if (!(record.imageData instanceof Blob)) {
+        throw new Error('Stored imageData is not a Blob.');
+      }
+
+      // Cleanup
+      await imageStorage.removeProfileImage(testProfileId);
+      return 'Google source metadata persisted and verified: source=google, email=alex@example.com.';
+    }
+  },
+
+  {
+    id: 'test-24-google-disconnect-preserves-avatar',
+    name: 'Disconnecting Google session leaves locally stored avatar image intact in IndexedDB',
+    async run() {
+      const testProfileId = 'bpi_prof_disc_' + Date.now();
+      const testBlob = await createTestImageBlob(100, 100, '#ea4335', 'image/png');
+
+      await imageStorage.saveProfileImage(testProfileId, testBlob, {
+        source: 'google',
+        email: 'disconnect_test@example.com'
+      });
+
+      // Disconnect session
+      await googleAuthService.signOut();
+
+      // Verify image is STILL in IndexedDB!
+      const recordAfter = await imageStorage.getProfileImage(testProfileId);
+      if (!recordAfter || !(recordAfter.imageData instanceof Blob)) {
+        throw new Error('Stored avatar was unexpectedly deleted upon Google disconnect!');
+      }
+
+      // Cleanup
+      await imageStorage.removeProfileImage(testProfileId);
+      return 'Disconnect safety verified: locally stored avatar preserved after sign-out.';
+    }
+  },
+
+  {
+    id: 'test-25-google-multi-profile-isolation',
+    name: 'Google avatar in Profile A remains completely isolated from Profile B',
+    async run() {
+      const profileA = 'bpi_prof_ga_' + Date.now();
+      const profileB = 'bpi_prof_gb_' + Date.now();
+
+      const blobGoogleA = await createTestImageBlob(80, 80, '#4285f4', 'image/png');
+      const blobLocalB = await createTestImageBlob(80, 80, '#fb542b', 'image/png');
+
+      // Profile A imports Google avatar
+      await imageStorage.saveProfileImage(profileA, blobGoogleA, {
+        source: 'google',
+        email: 'profileA@gmail.com'
+      });
+
+      // Profile B uses local image
+      await imageStorage.saveProfileImage(profileB, blobLocalB, {
+        source: 'local',
+        originalName: 'local.png'
+      });
+
+      const recA = await imageStorage.getProfileImage(profileA);
+      const recB = await imageStorage.getProfileImage(profileB);
+
+      if (recA.metadata.source !== 'google' || recA.metadata.email !== 'profileA@gmail.com') {
+        throw new Error('Profile A Google metadata corrupted.');
+      }
+      if (recB.metadata.source !== 'local') {
+        throw new Error('Profile B leaked Google data from Profile A.');
+      }
+
+      // Cleanup
+      await imageStorage.removeProfileImage(profileA);
+      await imageStorage.removeProfileImage(profileB);
+
+      return 'Profile A Google account and Profile B local avatar remain 100% isolated.';
     }
   }
 ];

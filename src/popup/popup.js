@@ -1,15 +1,17 @@
 /**
- * Popup Controller (Phase 4 - Custom Profile UI)
+ * Popup Controller (Phase 5 - Google Account Profile Image Integration)
  *
  * Responsibilities:
- * - Manages clean, modern UI states: Loading, Active Avatar, Empty State, Preview, Remove Confirmation.
+ * - Manages UI states: Loading, Active Avatar, Empty State, Source Selector,
+ *   Google Account Connect/Import, Image Preview, Remove Confirmation.
  * - Displays active profile friendly name with inline editing.
  * - Prominently showcases the custom circular avatar preserving aspect ratio.
- * - Displays clear status indicators ("Custom avatar active" vs "No custom avatar").
- * - Provides inline confirmation for destructive actions (removing avatar).
+ * - Supports two avatar sources:
+ *     1. Local Computer (PNG, JPEG, WEBP via file picker)
+ *     2. Google Account (Profile picture via OAuth 2.0 & Google Userinfo API)
+ * - Persists Google avatars locally as binary Blobs in IndexedDB with source metadata.
  * - Manages object URLs cleanly to avoid memory leaks.
- * - Handles errors gracefully with retry capabilities without crashing.
- * - Prevents race conditions during asynchronous operations.
+ * - Ensures 100% offline resilience and per-profile isolation.
  */
 
 import { EXTENSION_CONFIG, DB_CONFIG } from '../utils/constants.js';
@@ -23,6 +25,8 @@ import {
   revokeObjectUrl,
   formatBytes
 } from '../utils/image-processor.js';
+import { googleAuthService } from '../google/google-auth-service.js';
+import { googleProfileService } from '../google/google-profile-service.js';
 
 const log = createLogger('Popup');
 
@@ -39,7 +43,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Set extension version & phase badge
   const versionBadge = document.getElementById('versionBadge');
   if (versionBadge) {
-    versionBadge.textContent = `v${EXTENSION_CONFIG.VERSION} • Phase 4`;
+    versionBadge.textContent = `v${EXTENSION_CONFIG.VERSION} • Phase 5`;
   }
 
   // Bind all UI event listeners
@@ -83,7 +87,7 @@ async function loadProfileAndAvatar() {
 
     if (avatarRecord && avatarRecord.imageData && avatarRecord.imageData instanceof Blob) {
       // Transition to Active State
-      renderActiveState(avatarRecord.imageData);
+      renderActiveState(avatarRecord);
     } else {
       // Transition to Empty State
       renderEmptyState();
@@ -107,9 +111,9 @@ async function loadProfileAndAvatar() {
 /**
  * Sets the UI to the "Active Avatar" state.
  *
- * @param {Blob} imageBlob
+ * @param {Object} avatarRecord
  */
-function renderActiveState(imageBlob) {
+function renderActiveState(avatarRecord) {
   const profileAvatarWrapper = document.getElementById('profileAvatarWrapper');
   const profileAvatarImg = document.getElementById('profileAvatarImg');
   const profileAvatarEmpty = document.getElementById('profileAvatarEmpty');
@@ -119,12 +123,14 @@ function renderActiveState(imageBlob) {
   const btnAddImage = document.getElementById('btnAddImage');
   const activeActionButtons = document.getElementById('activeActionButtons');
   const removeConfirmBox = document.getElementById('removeConfirmBox');
+  const avatarSourceTag = document.getElementById('avatarSourceTag');
+  const avatarSourceText = document.getElementById('avatarSourceText');
 
   // Safely manage object URL
   if (activeAvatarUrl) {
     revokeObjectUrl(activeAvatarUrl);
   }
-  activeAvatarUrl = createObjectUrl(imageBlob);
+  activeAvatarUrl = createObjectUrl(avatarRecord.imageData);
 
   if (profileAvatarImg) {
     profileAvatarImg.src = activeAvatarUrl;
@@ -145,6 +151,18 @@ function renderActiveState(imageBlob) {
     avatarStatusText.textContent = 'Custom avatar active';
   }
 
+  // Check if avatar was imported from Google
+  if (avatarRecord.metadata && avatarRecord.metadata.source === 'google') {
+    if (avatarSourceTag && avatarSourceText) {
+      avatarSourceText.textContent = avatarRecord.metadata.email || avatarRecord.metadata.displayName || 'Google Account';
+      avatarSourceTag.classList.remove('hidden');
+    }
+  } else {
+    if (avatarSourceTag) {
+      avatarSourceTag.classList.add('hidden');
+    }
+  }
+
   // Hide empty state hints
   if (emptyStateText) emptyStateText.classList.add('hidden');
 
@@ -152,6 +170,7 @@ function renderActiveState(imageBlob) {
   if (btnAddImage) btnAddImage.classList.add('hidden');
   if (activeActionButtons) activeActionButtons.classList.remove('hidden');
   if (removeConfirmBox) removeConfirmBox.classList.add('hidden');
+  hideSourceCards();
 }
 
 /**
@@ -167,6 +186,7 @@ function renderEmptyState() {
   const btnAddImage = document.getElementById('btnAddImage');
   const activeActionButtons = document.getElementById('activeActionButtons');
   const removeConfirmBox = document.getElementById('removeConfirmBox');
+  const avatarSourceTag = document.getElementById('avatarSourceTag');
 
   // Revoke any existing active URL
   if (activeAvatarUrl) {
@@ -193,6 +213,9 @@ function renderEmptyState() {
     avatarStatusText.textContent = 'No custom avatar';
   }
 
+  // Hide source tag
+  if (avatarSourceTag) avatarSourceTag.classList.add('hidden');
+
   // Show empty state text
   if (emptyStateText) emptyStateText.classList.remove('hidden');
 
@@ -200,6 +223,17 @@ function renderEmptyState() {
   if (btnAddImage) btnAddImage.classList.remove('hidden');
   if (activeActionButtons) activeActionButtons.classList.add('hidden');
   if (removeConfirmBox) removeConfirmBox.classList.add('hidden');
+  hideSourceCards();
+}
+
+/**
+ * Hides temporary source selection and Google cards.
+ */
+function hideSourceCards() {
+  const sourceSelectorCard = document.getElementById('sourceSelectorCard');
+  const googleFlowCard = document.getElementById('googleFlowCard');
+  if (sourceSelectorCard) sourceSelectorCard.classList.add('hidden');
+  if (googleFlowCard) googleFlowCard.classList.add('hidden');
 }
 
 /**
@@ -238,8 +272,11 @@ function setOperationState(inProgress) {
   const btnRemoveImage = document.getElementById('btnRemoveImage');
   const btnSaveImage = document.getElementById('btnSaveImage');
   const btnConfirmRemove = document.getElementById('btnConfirmRemove');
+  const btnConnectGoogle = document.getElementById('btnConnectGoogle');
+  const btnSourceComputer = document.getElementById('btnSourceComputer');
+  const btnSourceGoogle = document.getElementById('btnSourceGoogle');
 
-  [btnAddImage, btnChangeImage, btnRemoveImage, btnSaveImage, btnConfirmRemove].forEach((btn) => {
+  [btnAddImage, btnChangeImage, btnRemoveImage, btnSaveImage, btnConfirmRemove, btnConnectGoogle, btnSourceComputer, btnSourceGoogle].forEach((btn) => {
     if (btn) btn.disabled = inProgress;
   });
 }
@@ -251,10 +288,16 @@ function setupEventListeners() {
   // 1. Profile Name Inline Editing
   setupProfileNameEditor();
 
-  // 2. Image Selection & Processing Flow
-  setupImageActions();
+  // 2. Source Selection & Image Flow (Computer vs Google)
+  setupSourceSelection();
 
-  // 3. Diagnostics Collapsible Drawer
+  // 3. Local Image File Flow
+  setupLocalImageActions();
+
+  // 4. Google Account Flow
+  setupGoogleFlow();
+
+  // 5. Diagnostics Collapsible Drawer
   setupDiagnosticsView();
 }
 
@@ -306,13 +349,218 @@ function setupProfileNameEditor() {
 }
 
 /**
- * Sets up image selection, preview, saving, and deletion flows.
+ * Sets up the Source Selection Sheet (Choose from Computer vs Google Account).
  */
-function setupImageActions() {
-  const imageFileInput = document.getElementById('imageFileInput');
-  const profileAvatarWrapper = document.getElementById('profileAvatarWrapper');
+function setupSourceSelection() {
   const btnAddImage = document.getElementById('btnAddImage');
   const btnChangeImage = document.getElementById('btnChangeImage');
+  const profileAvatarWrapper = document.getElementById('profileAvatarWrapper');
+
+  const sourceSelectorCard = document.getElementById('sourceSelectorCard');
+  const btnCloseSourceSelector = document.getElementById('btnCloseSourceSelector');
+  const btnSourceComputer = document.getElementById('btnSourceComputer');
+  const btnSourceGoogle = document.getElementById('btnSourceGoogle');
+
+  const removeConfirmBox = document.getElementById('removeConfirmBox');
+  const googleFlowCard = document.getElementById('googleFlowCard');
+  const imagePreviewCard = document.getElementById('imagePreviewCard');
+  const imageFileInput = document.getElementById('imageFileInput');
+
+  const openSourceSelector = () => {
+    if (isOperationInProgress) return;
+    hideAlert();
+    if (removeConfirmBox) removeConfirmBox.classList.add('hidden');
+    if (googleFlowCard) googleFlowCard.classList.add('hidden');
+    if (imagePreviewCard) imagePreviewCard.classList.add('hidden');
+
+    if (sourceSelectorCard) {
+      sourceSelectorCard.classList.remove('hidden');
+    }
+  };
+
+  if (btnAddImage) btnAddImage.addEventListener('click', openSourceSelector);
+  if (btnChangeImage) btnChangeImage.addEventListener('click', openSourceSelector);
+
+  if (profileAvatarWrapper) {
+    profileAvatarWrapper.addEventListener('click', openSourceSelector);
+    profileAvatarWrapper.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openSourceSelector();
+      }
+    });
+  }
+
+  if (btnCloseSourceSelector) {
+    btnCloseSourceSelector.addEventListener('click', () => {
+      if (sourceSelectorCard) sourceSelectorCard.classList.add('hidden');
+    });
+  }
+
+  // Choice 1: Local Computer
+  if (btnSourceComputer) {
+    btnSourceComputer.addEventListener('click', () => {
+      if (sourceSelectorCard) sourceSelectorCard.classList.add('hidden');
+      if (imageFileInput) {
+        imageFileInput.value = '';
+        imageFileInput.click();
+      }
+    });
+  }
+
+  // Choice 2: Google Account
+  if (btnSourceGoogle) {
+    btnSourceGoogle.addEventListener('click', async () => {
+      if (sourceSelectorCard) sourceSelectorCard.classList.add('hidden');
+      await openGoogleFlow();
+    });
+  }
+}
+
+/**
+ * Opens and initializes the Google Account card.
+ */
+async function openGoogleFlow() {
+  const googleFlowCard = document.getElementById('googleFlowCard');
+  const googleUnconfiguredView = document.getElementById('googleUnconfiguredView');
+  const googleConnectView = document.getElementById('googleConnectView');
+  const googleLoadingView = document.getElementById('googleLoadingView');
+  const inputCustomClientId = document.getElementById('inputCustomClientId');
+
+  if (!googleFlowCard) return;
+
+  hideAlert();
+  googleFlowCard.classList.remove('hidden');
+  if (googleLoadingView) googleLoadingView.classList.add('hidden');
+
+  const isConfigured = await googleAuthService.isConfigured();
+
+  if (!isConfigured) {
+    // Show configuration guide
+    if (googleUnconfiguredView) googleUnconfiguredView.classList.remove('hidden');
+    if (googleConnectView) googleConnectView.classList.add('hidden');
+    if (inputCustomClientId) {
+      const currentId = await googleAuthService.getClientId();
+      inputCustomClientId.value = currentId || '';
+    }
+  } else {
+    // Show connect prompt
+    if (googleUnconfiguredView) googleUnconfiguredView.classList.add('hidden');
+    if (googleConnectView) googleConnectView.classList.remove('hidden');
+  }
+}
+
+/**
+ * Sets up Google OAuth and Profile picture import flows.
+ */
+function setupGoogleFlow() {
+  const btnCloseGoogleFlow = document.getElementById('btnCloseGoogleFlow');
+  const googleFlowCard = document.getElementById('googleFlowCard');
+  const btnConnectGoogle = document.getElementById('btnConnectGoogle');
+  const googleConnectView = document.getElementById('googleConnectView');
+  const googleLoadingView = document.getElementById('googleLoadingView');
+  const googleLoadingText = document.getElementById('googleLoadingText');
+
+  const btnSaveClientId = document.getElementById('btnSaveClientId');
+  const inputCustomClientId = document.getElementById('inputCustomClientId');
+  const googleUnconfiguredView = document.getElementById('googleUnconfiguredView');
+
+  const btnDisconnectGoogle = document.getElementById('btnDisconnectGoogle');
+
+  // Close Google flow card
+  if (btnCloseGoogleFlow) {
+    btnCloseGoogleFlow.addEventListener('click', () => {
+      if (googleFlowCard) googleFlowCard.classList.add('hidden');
+    });
+  }
+
+  // Save custom client ID entered in popup
+  if (btnSaveClientId && inputCustomClientId) {
+    btnSaveClientId.addEventListener('click', async () => {
+      const val = inputCustomClientId.value.trim();
+      if (!val) {
+        showAlert('Please paste a valid Google OAuth Client ID.', 'warning');
+        return;
+      }
+
+      await googleAuthService.setCustomClientId(val);
+      showAlert('Google Client ID saved locally.', 'success');
+
+      if (googleUnconfiguredView) googleUnconfiguredView.classList.add('hidden');
+      if (googleConnectView) googleConnectView.classList.remove('hidden');
+    });
+  }
+
+  // Connect Google Account & Import Photo
+  if (btnConnectGoogle) {
+    btnConnectGoogle.addEventListener('click', async () => {
+      if (isOperationInProgress) return;
+
+      try {
+        setOperationState(true);
+        if (googleConnectView) googleConnectView.classList.add('hidden');
+        if (googleLoadingView) googleLoadingView.classList.remove('hidden');
+
+        // Execute complete import pipeline
+        const result = await googleProfileService.importGoogleAvatar({
+          onProgress: (statusMsg) => {
+            if (googleLoadingText) googleLoadingText.textContent = statusMsg;
+          }
+        });
+
+        // Close Google Card
+        if (googleFlowCard) googleFlowCard.classList.add('hidden');
+
+        // Render newly saved avatar
+        renderActiveState({
+          imageData: result.avatarRecord.blob,
+          metadata: result.avatarRecord.metadata
+        });
+
+        showAlert(
+          `Imported Google avatar for ${result.user.name || result.user.email}.`,
+          'success'
+        );
+
+        // Refresh diagnostics if open
+        const panel = document.getElementById('diagnosticsPanel');
+        if (panel && !panel.classList.contains('hidden')) {
+          await populateDiagnostics();
+        }
+      } catch (err) {
+        log.error('Google avatar import error:', err);
+        if (googleLoadingView) googleLoadingView.classList.add('hidden');
+        if (googleConnectView) googleConnectView.classList.remove('hidden');
+
+        const message = err.message || 'Failed to import Google profile photo.';
+        showAlert(message, 'error');
+      } finally {
+        setOperationState(false);
+      }
+    });
+  }
+
+  // Disconnect Google Account Session (leaves local avatar intact)
+  if (btnDisconnectGoogle) {
+    btnDisconnectGoogle.addEventListener('click', async () => {
+      try {
+        await googleAuthService.signOut();
+        const avatarSourceTag = document.getElementById('avatarSourceTag');
+        if (avatarSourceTag) avatarSourceTag.classList.add('hidden');
+
+        showAlert('Google account session disconnected. Local avatar remains saved.', 'info');
+      } catch (err) {
+        log.error('Failed to disconnect Google account:', err);
+      }
+    });
+  }
+}
+
+/**
+ * Sets up local computer image file selection, preview, saving, and deletion.
+ */
+function setupLocalImageActions() {
+  const imageFileInput = document.getElementById('imageFileInput');
   const btnRemoveImage = document.getElementById('btnRemoveImage');
 
   const imagePreviewCard = document.getElementById('imagePreviewCard');
@@ -328,31 +576,6 @@ function setupImageActions() {
 
   const btnDismissAlert = document.getElementById('btnDismissAlert');
   const btnRetryAction = document.getElementById('btnRetryAction');
-
-  // Trigger file picker
-  const triggerPicker = () => {
-    if (isOperationInProgress) return;
-    hideAlert();
-    if (removeConfirmBox) removeConfirmBox.classList.add('hidden');
-    if (imageFileInput) {
-      imageFileInput.value = '';
-      imageFileInput.click();
-    }
-  };
-
-  if (btnAddImage) btnAddImage.addEventListener('click', triggerPicker);
-  if (btnChangeImage) btnChangeImage.addEventListener('click', triggerPicker);
-
-  if (profileAvatarWrapper) {
-    profileAvatarWrapper.addEventListener('click', triggerPicker);
-    // Keyboard accessibility: Enter / Space triggers picker
-    profileAvatarWrapper.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        triggerPicker();
-      }
-    });
-  }
 
   // File selected in native dialog
   if (imageFileInput) {
@@ -407,13 +630,17 @@ function setupImageActions() {
         setOperationState(true);
         btnSaveImage.textContent = 'Saving...';
 
-        await profileService.saveProfileImage(inFlightProcessedImage.blob, {
+        const metadata = {
+          source: 'local',
           width: inFlightProcessedImage.width,
           height: inFlightProcessedImage.height,
           originalName: inFlightProcessedImage.originalName,
           sizeBytes: inFlightProcessedImage.sizeBytes,
-          mimeType: inFlightProcessedImage.mimeType
-        });
+          mimeType: inFlightProcessedImage.mimeType,
+          importedAt: Date.now()
+        };
+
+        await profileService.saveProfileImage(inFlightProcessedImage.blob, metadata);
 
         // Hide preview and clean up preview URL
         if (imagePreviewCard) imagePreviewCard.classList.add('hidden');
@@ -426,7 +653,10 @@ function setupImageActions() {
         inFlightProcessedImage = null;
 
         // Render active avatar immediately
-        renderActiveState(savedBlob);
+        renderActiveState({
+          imageData: savedBlob,
+          metadata
+        });
         showAlert('Custom avatar saved successfully.', 'success');
 
         // Refresh diagnostics if open
@@ -615,6 +845,9 @@ async function populateDiagnostics() {
   const diagPlatform = document.getElementById('diagPlatform');
   const diagDbName = document.getElementById('diagDbName');
   const diagAvatarStatus = document.getElementById('diagAvatarStatus');
+  const diagAvatarSource = document.getElementById('diagAvatarSource');
+  const diagGoogleStatus = document.getElementById('diagGoogleStatus');
+  const diagRedirectUri = document.getElementById('diagRedirectUri');
   const diagInstanceId = document.getElementById('diagInstanceId');
 
   try {
@@ -639,6 +872,18 @@ async function populateDiagnostics() {
       diagDbName.textContent = DB_CONFIG.NAME;
     }
 
+    // Google config status
+    if (diagGoogleStatus) {
+      const isConfigured = await googleAuthService.isConfigured();
+      diagGoogleStatus.textContent = isConfigured ? 'Configured (OAuth Ready)' : 'Not Configured (Missing Client ID)';
+      diagGoogleStatus.className = isConfigured ? 'diag-val highlight-green' : 'diag-val';
+    }
+
+    if (diagRedirectUri) {
+      diagRedirectUri.textContent = googleAuthService.getRedirectUri();
+    }
+
+    // Custom avatar status and source
     if (diagAvatarStatus) {
       const avatar = await profileService.getProfileImage();
       if (avatar && avatar.imageData) {
@@ -646,8 +891,17 @@ async function populateDiagnostics() {
         const h = avatar.metadata?.height || 512;
         const format = (avatar.mimeType || 'image/png').replace('image/', '').toUpperCase();
         diagAvatarStatus.textContent = `${w}×${h} ${format} (${formatBytes(avatar.sizeBytes)})`;
+
+        if (diagAvatarSource) {
+          if (avatar.metadata?.source === 'google') {
+            diagAvatarSource.textContent = `Google (${avatar.metadata.email || 'account'})`;
+          } else {
+            diagAvatarSource.textContent = 'Local File';
+          }
+        }
       } else {
         diagAvatarStatus.textContent = 'None (Default placeholder)';
+        if (diagAvatarSource) diagAvatarSource.textContent = 'None';
       }
     }
   } catch (err) {
