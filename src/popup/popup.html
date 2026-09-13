@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Custom Brave Profiles</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <!-- Header Section -->
+    <header class="popup-header">
+      <div class="brand">
+        <div class="logo-wrapper">
+          <img src="../../assets/icons/icon-48.png" alt="Extension Logo" class="brand-logo" width="28" height="28">
+        </div>
+        <div class="title-group">
+          <h1 class="brand-title">Custom Brave Profiles</h1>
+          <span class="version-badge" id="versionBadge">v0.1.0</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Status Section -->
+    <main class="popup-body">
+      <div class="status-card" id="statusCard">
+        <div class="status-indicator">
+          <span class="status-pulse"></span>
+          <span class="status-dot"></span>
+        </div>
+        <div class="status-content">
+          <p class="status-headline" id="statusHeadline">Extension initialized successfully.</p>
+          <p class="status-subtext" id="statusSubtext">Core runtime & storage ready for personal use.</p>
+        </div>
+      </div>
+
+      <!-- Architecture & Diagnostic Specs -->
+      <section class="diagnostics-grid">
+        <div class="diag-item">
+          <span class="diag-label">Architecture</span>
+          <span class="diag-value">Manifest V3</span>
+        </div>
+        <div class="diag-item">
+          <span class="diag-label">Storage Engine</span>
+          <span class="diag-value" id="storageStatus">Initializing...</span>
+        </div>
+        <div class="diag-item">
+          <span class="diag-label">Current Phase</span>
+          <span class="diag-value highlight">Phase 1: Foundation</span>
+        </div>
+        <div class="diag-item">
+          <span class="diag-label">Mode</span>
+          <span class="diag-value">Local-First</span>
+        </div>
+      </section>
+
+      <!-- Phase Notice / Roadmap Context -->
+      <div class="info-callout">
+        <div class="callout-icon">ℹ</div>
+        <div class="callout-text">
+          <strong>Architecture Complete:</strong> Profile identification and custom image management will be activated in Phase 2.
+        </div>
+      </div>
+    </main>
+
+    <!-- Footer Section -->
+    <footer class="popup-footer">
+      <span class="footer-text">Brave Profile Images &bull; Local Only</span>
+    </footer>
+  </div>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

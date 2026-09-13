@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Brave Profile Images",
+  "version": "0.1.0",
+  "description": "Local-first browser extension foundation for assigning custom images to Brave profiles.",
+  "icons": {
+    "16": "assets/icons/icon-16.png",
+    "48": "assets/icons/icon-48.png",
+    "128": "assets/icons/icon-128.png"
+  },
+  "action": {
+    "default_popup": "src/popup/popup.html",
+    "default_title": "Custom Brave Profiles",
+    "default_icon": {
+      "16": "assets/icons/icon-16.png",
+      "48": "assets/icons/icon-48.png",
+      "128": "assets/icons/icon-128.png"
+    }
+  },
+  "background": {
+    "service_worker": "src/background/background.js",
+    "type": "module"
+  },
+  "permissions": [
+    "storage"
+  ]
+}
