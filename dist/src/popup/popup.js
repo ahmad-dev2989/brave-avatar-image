@@ -482,26 +482,17 @@ function setupSourceSelection() {
  * Opens and initializes the Google Account card.
  */
 async function openGoogleFlow() {
-  const googleUnconfiguredView = document.getElementById('googleUnconfiguredView');
   const googleConnectView = document.getElementById('googleConnectView');
   const googleLoadingView = document.getElementById('googleLoadingView');
   const inputCustomClientId = document.getElementById('inputCustomClientId');
 
   if (toast) toast.hide();
   if (googleLoadingView) googleLoadingView.classList.add('hidden');
+  if (googleConnectView) googleConnectView.classList.remove('hidden');
 
-  const isConfigured = await googleAuthService.isConfigured();
-
-  if (!isConfigured) {
-    if (googleUnconfiguredView) googleUnconfiguredView.classList.remove('hidden');
-    if (googleConnectView) googleConnectView.classList.add('hidden');
-    if (inputCustomClientId) {
-      const currentId = await googleAuthService.getClientId();
-      inputCustomClientId.value = currentId || '';
-    }
-  } else {
-    if (googleUnconfiguredView) googleUnconfiguredView.classList.add('hidden');
-    if (googleConnectView) googleConnectView.classList.remove('hidden');
+  if (inputCustomClientId) {
+    const currentId = await googleAuthService.getClientId();
+    inputCustomClientId.value = currentId || '';
   }
 
   modalManager.open('google-flow');
@@ -578,9 +569,91 @@ function setupGoogleFlow() {
         if (googleLoadingView) googleLoadingView.classList.add('hidden');
         if (googleConnectView) googleConnectView.classList.remove('hidden');
 
+        const errMsg = err?.message || String(err);
+        let friendlyMsg = ToastController.formatErrorMessage(err);
+        if (errMsg.includes('redirect_uri_mismatch') || errMsg.includes('invalid_client') || errMsg.includes('Authorization failed')) {
+          friendlyMsg = 'Google OAuth sign-in unavailable. You can paste your Google profile photo link below to import directly!';
+        }
+        if (toast) toast.show(friendlyMsg, 'error');
+      } finally {
+        setOperationState(false);
+      }
+    });
+  }
+
+  // Import photo via direct Google photo URL or web link
+  const inputGooglePhotoUrl = document.getElementById('inputGooglePhotoUrl');
+  const btnImportGoogleUrl = document.getElementById('btnImportGoogleUrl');
+
+  if (btnImportGoogleUrl && inputGooglePhotoUrl) {
+    btnImportGoogleUrl.addEventListener('click', async () => {
+      if (isOperationInProgress) return;
+      const rawUrl = inputGooglePhotoUrl.value.trim();
+      if (!rawUrl) {
+        if (toast) toast.show('Please paste a Google photo link or image address.', 'warning');
+        return;
+      }
+
+      try {
+        setOperationState(true);
+        btnImportGoogleUrl.textContent = 'Importing...';
+
+        let response;
+        try {
+          response = await fetch(rawUrl);
+        } catch (netErr) {
+          throw new Error('Could not download image from the provided link. Please check the URL.');
+        }
+
+        if (!response.ok) {
+          throw new Error(`Failed to download image (HTTP ${response.status}).`);
+        }
+
+        const rawBlob = await response.blob();
+        if (!rawBlob || rawBlob.size === 0) {
+          throw new Error('Downloaded image file is empty.');
+        }
+
+        // Process through authoritative pipeline (center-crop 1:1, downscale max 512, PNG)
+        const processed = await processAvatarImage(rawBlob, {
+          targetSize: 512,
+          outputMimeType: 'image/png'
+        });
+
+        const metadata = {
+          source: 'google',
+          provider: 'google',
+          sourceImageUrl: rawUrl,
+          width: processed.width,
+          height: processed.height,
+          sizeBytes: processed.sizeBytes,
+          originalName: 'google-avatar.png',
+          importedAt: Date.now()
+        };
+
+        const savedBlob = processed.blob;
+        await profileService.saveProfileImage(savedBlob, metadata);
+
+        modalManager.close('google-flow', false);
+        inputGooglePhotoUrl.value = '';
+
+        renderActiveState({
+          imageData: savedBlob,
+          metadata
+        });
+
+        if (toast) toast.show('Google profile photo applied.', 'success');
+
+        const panel = document.getElementById('diagnosticsPanel');
+        if (panel && !panel.classList.contains('hidden')) {
+          await populateDiagnostics();
+        }
+      } catch (err) {
+        log.error('URL import error:', err);
         const friendlyMsg = ToastController.formatErrorMessage(err);
         if (toast) toast.show(friendlyMsg, 'error');
       } finally {
+        if (btnImportGoogleUrl) btnImportGoogleUrl.textContent = 'Import';
         setOperationState(false);
       }
     });
@@ -689,29 +762,34 @@ function setupLocalImageActions() {
         setOperationState(true);
         btnSaveImage.textContent = 'Saving...';
 
+        // Capture image reference before any modal close hook can dereference it
+        const currentProcessed = inFlightProcessedImage;
+        const savedBlob = currentProcessed.blob;
+
         const metadata = {
           source: 'local',
-          width: inFlightProcessedImage.width,
-          height: inFlightProcessedImage.height,
-          originalName: inFlightProcessedImage.originalName,
-          sizeBytes: inFlightProcessedImage.sizeBytes,
-          mimeType: inFlightProcessedImage.mimeType,
+          width: currentProcessed.width,
+          height: currentProcessed.height,
+          originalName: currentProcessed.originalName,
+          sizeBytes: currentProcessed.sizeBytes,
+          mimeType: currentProcessed.mimeType,
           importedAt: Date.now()
         };
 
-        await profileService.saveProfileImage(inFlightProcessedImage.blob, metadata);
+        // 1. Save to profile-scoped IndexedDB
+        await profileService.saveProfileImage(savedBlob, metadata);
 
-        // Hide preview and clean up preview URL
-        modalManager.close('image-preview', false);
+        // 2. Clean up preview object URL and clear state
         if (previewAvatarUrl) {
           revokeObjectUrl(previewAvatarUrl);
           previewAvatarUrl = null;
         }
-
-        const savedBlob = inFlightProcessedImage.blob;
         inFlightProcessedImage = null;
 
-        // Render active avatar immediately
+        // 3. Hide preview modal
+        modalManager.close('image-preview', false);
+
+        // 4. Render active avatar immediately
         renderActiveState({
           imageData: savedBlob,
           metadata
@@ -730,12 +808,12 @@ function setupLocalImageActions() {
           toast.show(
             ToastController.formatErrorMessage(err),
             'error',
-            { actionText: 'Try Again', onAction: () => btnSaveImage.click() }
+            { actionText: 'Try Again', onAction: () => btnSaveImage?.click() }
           );
         }
       } finally {
+        if (btnSaveImage) btnSaveImage.textContent = 'Use This Image';
         setOperationState(false);
-        btnSaveImage.textContent = 'Use This Image';
       }
     });
   }

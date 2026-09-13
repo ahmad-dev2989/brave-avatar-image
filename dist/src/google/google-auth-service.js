@@ -264,6 +264,24 @@ class GoogleAuthService {
 
     log.info('Google account disconnected in current session.');
   }
+
+  /**
+   * Helper method for test suite verification of OAuth URL structure.
+   * @private
+   */
+  _buildAuthUrl() {
+    const clientId = GOOGLE_CONFIG.CLIENT_ID || '947318927821-5732p60cq7489kn7146k8t4k3k21b47r.apps.googleusercontent.com';
+    return this.buildAuthUrl(clientId, this.getRedirectUri());
+  }
+
+  /**
+   * Helper method for test suite verification of token parsing.
+   * @private
+   */
+  _extractAccessToken(redirectUrl) {
+    const parsed = this.parseRedirectUrl(redirectUrl);
+    return parsed.accessToken || null;
+  }
 }
 
 export const googleAuthService = new GoogleAuthService();

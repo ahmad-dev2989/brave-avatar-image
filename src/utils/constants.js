@@ -44,10 +44,8 @@ export const IMAGE_CONFIG = {
 };
 
 export const GOOGLE_CONFIG = {
-  // Optional Google OAuth 2.0 Client ID created in Google Cloud Console
-  // Set your Client ID here or configure it in the extension UI
-  // See README.md for 2-minute setup instructions
-  CLIENT_ID: '',
+  // Built-in Google OAuth 2.0 Client ID (enables one-click Google account sign-in)
+  CLIENT_ID: '947318927821-5732p60cq7489kn7146k8t4k3k21b47r.apps.googleusercontent.com',
   AUTH_ENDPOINT: 'https://accounts.google.com/o/oauth2/v2/auth',
   USERINFO_ENDPOINT: 'https://www.googleapis.com/oauth2/v3/userinfo',
   // Minimal OAuth scopes: only request basic identity to obtain the profile photo

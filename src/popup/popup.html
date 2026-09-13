@@ -178,29 +178,15 @@
               <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 10.03 0 12s.45 3.82 1.25 5.42l4.03-3.15z"/>
               <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"/>
             </svg>
-            <span class="google-flow-title" id="googleFlowTitle">Google Account Avatar</span>
+            <span class="google-flow-title" id="googleFlowTitle">Google Profile Photo</span>
           </div>
           <button type="button" class="btn-close-card" id="btnCloseGoogleFlow" aria-label="Close Google account flow">✕</button>
         </div>
 
-        <!-- View A: Unconfigured Guide (shown if no Client ID) -->
-        <div class="google-unconfigured-view hidden" id="googleUnconfiguredView">
-          <div class="config-notice-icon">⚙️</div>
-          <p class="config-notice-headline">OAuth Client ID Required</p>
-          <p class="config-notice-desc">
-            To connect Google accounts, an OAuth Client ID from Google Cloud Console is needed.
-          </p>
-          <div class="client-id-input-group">
-            <input type="text" class="input-client-id" id="inputCustomClientId" placeholder="Paste Client ID here" aria-label="Google OAuth Client ID">
-            <button type="button" class="btn-save-client-id" id="btnSaveClientId">Save</button>
-          </div>
-          <span class="config-hint-text">Or configure in <code>src/utils/constants.js</code>. See README for setup instructions.</span>
-        </div>
-
-        <!-- View B: Connect Prompt -->
+        <!-- Google Connect View (Primary View) -->
         <div class="google-connect-view" id="googleConnectView">
           <p class="google-flow-desc">
-            Connect a Google account to use its profile photo for this Brave profile.
+            Sign in with Google to use your Google account photo for this Brave profile.
           </p>
           <button type="button" class="btn-google" id="btnConnectGoogle">
             <svg class="google-svg" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
@@ -209,9 +195,29 @@
               <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 10.03 0 12s.45 3.82 1.25 5.42l4.03-3.15z"/>
               <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"/>
             </svg>
-            Connect Google Account
+            Sign in with Google
           </button>
+
+          <div class="google-divider"><span>or paste Google photo link</span></div>
+
+          <div class="google-url-input-group">
+            <input type="url" class="input-google-url" id="inputGooglePhotoUrl" placeholder="https://lh3.googleusercontent.com/..." aria-label="Google photo URL">
+            <button type="button" class="btn-primary btn-import-url" id="btnImportGoogleUrl">Import</button>
+          </div>
+          <span class="google-url-hint">In Gmail or Google, right-click your profile picture and select <em>Copy image address</em>.</span>
+
+          <!-- Advanced: Optional Custom Client ID -->
+          <details class="google-advanced-details">
+            <summary class="google-advanced-summary">Advanced OAuth Settings</summary>
+            <div class="client-id-input-group" style="margin-top: 6px;">
+              <input type="text" class="input-client-id" id="inputCustomClientId" placeholder="Custom OAuth Client ID" aria-label="Google OAuth Client ID">
+              <button type="button" class="btn-save-client-id" id="btnSaveClientId">Save</button>
+            </div>
+          </details>
         </div>
+
+        <!-- Hidden legacy unconfigured placeholder for JS controller compatibility -->
+        <div class="google-unconfigured-view hidden" id="googleUnconfiguredView"></div>
 
         <!-- View C: Loading / In-Progress View -->
         <div class="google-loading-view hidden" id="googleLoadingView">
