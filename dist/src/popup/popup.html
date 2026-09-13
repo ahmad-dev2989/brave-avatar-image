@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Custom Brave Profiles</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <!-- Brand Header -->
+    <header class="popup-header">
+      <div class="brand">
+        <div class="logo-wrapper">
+          <img src="../../assets/icons/icon-48.png" alt="Extension Logo" class="brand-logo" width="28" height="28">
+        </div>
+        <div class="title-group">
+          <h1 class="brand-title">Brave Profile Avatar</h1>
+          <span class="version-badge" id="versionBadge">v1.0.0 • Production</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content Section -->
+    <main class="popup-body">
+      <!-- Floating Toast Notification Banner -->
+      <aside class="toast-box hidden" id="toastContainer" role="status" aria-live="polite">
+        <span class="toast-icon" id="toastIcon">ℹ</span>
+        <div class="toast-content">
+          <span class="toast-text" id="toastText">Notification message</span>
+          <button type="button" class="btn-toast-action hidden" id="btnToastAction">Retry</button>
+        </div>
+        <button type="button" class="toast-dismiss" id="btnDismissToast" aria-label="Dismiss Notification">✕</button>
+      </aside>
+
+      <!-- Main Profile & Avatar Card -->
+      <section class="profile-card" id="profileCard">
+        <!-- Profile Name Header with Inline Edit -->
+        <div class="profile-name-header">
+          <div class="profile-name-display" id="profileNameDisplay">
+            <span class="profile-name" id="profileNameText">Loading Profile...</span>
+            <button type="button" class="btn-icon" id="btnEditName" title="Rename this profile" aria-label="Edit Profile Name">
+              ✎
+            </button>
+          </div>
+          <!-- Inline Edit Form (Hidden by default) -->
+          <form class="profile-edit-form hidden" id="profileEditForm">
+            <input type="text" class="input-name" id="inputProfileName" maxlength="32" placeholder="Profile name (e.g. Personal)" aria-label="Profile Display Name">
+            <div class="edit-actions">
+              <button type="submit" class="btn-save" id="btnSaveName">Save</button>
+              <button type="button" class="btn-cancel" id="btnCancelEdit" aria-label="Cancel editing">✕</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Hero Avatar Showcase -->
+        <div class="avatar-hero-container">
+          <!-- Loading Skeleton Placeholder -->
+          <div class="avatar-skeleton-wrapper" id="avatarSkeleton">
+            <div class="avatar-skeleton-circle"></div>
+            <span class="avatar-skeleton-text">Loading avatar...</span>
+          </div>
+
+          <!-- Avatar Frame -->
+          <div class="profile-avatar-wrapper hidden" id="profileAvatarWrapper" role="button" tabindex="0" title="Click to choose a custom avatar" aria-label="Profile Avatar">
+            <!-- Custom Image Element -->
+            <img id="profileAvatarImg" class="profile-avatar-img hidden" alt="Custom Profile Avatar">
+
+            <!-- Default Placeholder Avatar (Clean Neutral Silhouette) -->
+            <div class="profile-avatar-empty" id="profileAvatarEmpty" aria-hidden="true">
+              <svg class="avatar-placeholder-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                <circle cx="12" cy="7" r="4"></circle>
+              </svg>
+            </div>
+
+            <!-- Hover Overlay -->
+            <div class="avatar-hover-overlay" id="avatarHoverOverlay" aria-hidden="true">
+              <span class="avatar-hover-icon">📷</span>
+            </div>
+          </div>
+
+          <!-- Profile Status Badge -->
+          <div class="status-badge-container">
+            <div class="status-pill status-pill-empty" id="avatarStatusBadge">
+              <span class="status-dot"></span>
+              <span class="status-text" id="avatarStatusText">No custom avatar</span>
+            </div>
+          </div>
+
+          <!-- Secondary Source Indicator (Shown when avatar exists) -->
+          <div class="avatar-source-tag hidden" id="avatarSourceTag">
+            <span class="source-tag-icon" id="avatarSourceIcon">📁</span>
+            <span class="source-tag-text" id="avatarSourceText">Uploaded from computer</span>
+            <button type="button" class="btn-disconnect-google hidden" id="btnDisconnectGoogle" title="Disconnect Google session (preserves current local avatar)">Disconnect</button>
+          </div>
+
+          <!-- Empty State Friendly Help Text -->
+          <p class="empty-state-text" id="emptyStateText">
+            Choose an image from your computer or use your Google profile photo.
+          </p>
+        </div>
+
+        <!-- Action Buttons Area -->
+        <div class="avatar-actions-container">
+          <input type="file" id="imageFileInput" accept="image/png,image/jpeg,image/webp" class="hidden" aria-hidden="true">
+
+          <!-- Empty State Primary Button -->
+          <button type="button" class="btn-primary" id="btnAddImage" title="Choose an avatar for this profile">
+            <span class="btn-icon-symbol">📷</span> Add Avatar
+          </button>
+
+          <!-- Active State Action Buttons -->
+          <div class="active-actions-row hidden" id="activeActionButtons">
+            <button type="button" class="btn-secondary" id="btnChangeImage" title="Select a different avatar">
+              <span class="btn-icon-symbol">🔄</span> Change Avatar
+            </button>
+            <button type="button" class="btn-danger" id="btnRemoveImage" title="Remove custom avatar">
+              <span class="btn-icon-symbol">🗑</span> Remove Avatar
+            </button>
+          </div>
+        </div>
+
+        <!-- Inline Remove Confirmation Dialog (Hidden by default) -->
+        <div class="remove-confirm-box hidden" id="removeConfirmBox" role="alertdialog" aria-modal="true" aria-labelledby="removeConfirmPrompt" aria-describedby="removeConfirmDesc">
+          <p class="remove-confirm-prompt" id="removeConfirmPrompt">Remove custom avatar?</p>
+          <p class="remove-confirm-desc" id="removeConfirmDesc">This will remove the custom avatar for this Brave profile.</p>
+          <div class="remove-confirm-actions">
+            <button type="button" class="btn-secondary btn-sm" id="btnCancelRemove">Cancel</button>
+            <button type="button" class="btn-danger btn-sm" id="btnConfirmRemove">Remove</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Source Selection Sheet (Modal Dialog) -->
+      <section class="source-selector-card hidden" id="sourceSelectorCard" role="dialog" aria-modal="true" aria-labelledby="sourceSelectorTitle">
+        <div class="source-selector-header">
+          <span class="source-selector-title" id="sourceSelectorTitle">Choose Avatar Source</span>
+          <button type="button" class="btn-close-card" id="btnCloseSourceSelector" aria-label="Close source selection">✕</button>
+        </div>
+        <div class="source-options-grid">
+          <!-- Option 1: Local Computer File -->
+          <button type="button" class="source-option-btn" id="btnSourceComputer">
+            <div class="source-icon-wrap">📁</div>
+            <div class="source-text-wrap">
+              <span class="source-option-heading">Upload from Computer</span>
+              <span class="source-option-sub">PNG, JPEG, or WEBP (Max 5 MB)</span>
+            </div>
+            <span class="source-chevron">›</span>
+          </button>
+
+          <!-- Option 2: Google Account Photo -->
+          <button type="button" class="source-option-btn" id="btnSourceGoogle">
+            <div class="source-icon-wrap google-icon-wrap">
+              <svg class="google-svg" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"/>
+                <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"/>
+                <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 10.03 0 12s.45 3.82 1.25 5.42l4.03-3.15z"/>
+                <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"/>
+              </svg>
+            </div>
+            <div class="source-text-wrap">
+              <span class="source-option-heading">Use Google Account</span>
+              <span class="source-option-sub">Import your Google profile photo</span>
+            </div>
+            <span class="source-chevron">›</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Google Account Flow Card (Modal Dialog) -->
+      <section class="google-flow-card hidden" id="googleFlowCard" role="dialog" aria-modal="true" aria-labelledby="googleFlowTitle">
+        <div class="google-flow-header">
+          <div class="google-flow-title-group">
+            <svg class="google-svg" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"/>
+              <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"/>
+              <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 10.03 0 12s.45 3.82 1.25 5.42l4.03-3.15z"/>
+              <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"/>
+            </svg>
+            <span class="google-flow-title" id="googleFlowTitle">Google Account Avatar</span>
+          </div>
+          <button type="button" class="btn-close-card" id="btnCloseGoogleFlow" aria-label="Close Google account flow">✕</button>
+        </div>
+
+        <!-- View A: Unconfigured Guide (shown if no Client ID) -->
+        <div class="google-unconfigured-view hidden" id="googleUnconfiguredView">
+          <div class="config-notice-icon">⚙️</div>
+          <p class="config-notice-headline">OAuth Client ID Required</p>
+          <p class="config-notice-desc">
+            To connect Google accounts, an OAuth Client ID from Google Cloud Console is needed.
+          </p>
+          <div class="client-id-input-group">
+            <input type="text" class="input-client-id" id="inputCustomClientId" placeholder="Paste Client ID here" aria-label="Google OAuth Client ID">
+            <button type="button" class="btn-save-client-id" id="btnSaveClientId">Save</button>
+          </div>
+          <span class="config-hint-text">Or configure in <code>src/utils/constants.js</code>. See README for setup instructions.</span>
+        </div>
+
+        <!-- View B: Connect Prompt -->
+        <div class="google-connect-view" id="googleConnectView">
+          <p class="google-flow-desc">
+            Connect a Google account to use its profile photo for this Brave profile.
+          </p>
+          <button type="button" class="btn-google" id="btnConnectGoogle">
+            <svg class="google-svg" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"/>
+              <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"/>
+              <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 10.03 0 12s.45 3.82 1.25 5.42l4.03-3.15z"/>
+              <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"/>
+            </svg>
+            Connect Google Account
+          </button>
+        </div>
+
+        <!-- View C: Loading / In-Progress View -->
+        <div class="google-loading-view hidden" id="googleLoadingView">
+          <div class="google-spinner" aria-hidden="true"></div>
+          <span class="google-loading-text" id="googleLoadingText">Connecting to Google...</span>
+        </div>
+      </section>
+
+      <!-- Local Image Preview Card (Modal Dialog) -->
+      <section class="image-preview-card hidden" id="imagePreviewCard" role="dialog" aria-modal="true" aria-labelledby="previewTitle">
+        <div class="preview-header">
+          <span class="preview-title" id="previewTitle">Avatar Preview</span>
+          <span class="preview-badge">1:1 Square</span>
+        </div>
+        <div class="preview-content">
+          <div class="preview-avatar-circle">
+            <img id="imagePreviewImg" class="preview-avatar-img" alt="Cropped Avatar Preview">
+          </div>
+          <div class="preview-details">
+            <div class="preview-file-name" id="previewFileName">avatar.png</div>
+            <div class="preview-meta-info" id="previewMetaInfo">512 × 512 • 45 KB</div>
+            <div class="preview-crop-hint">Auto center-cropped to square</div>
+          </div>
+        </div>
+        <div class="preview-actions">
+          <button type="button" class="btn-primary" id="btnSaveImage">Use This Image</button>
+          <button type="button" class="btn-secondary" id="btnCancelImage">Cancel</button>
+        </div>
+      </section>
+
+      <!-- Profile Diagnostics Collapsible Drawer -->
+      <section class="diagnostics-section">
+        <button type="button" class="diagnostics-toggle" id="btnToggleDiagnostics" aria-expanded="false" aria-controls="diagnosticsPanel">
+          <span class="toggle-icon">▸</span>
+          <span class="toggle-title">Profile & Diagnostics</span>
+        </button>
+
+        <div class="diagnostics-panel hidden" id="diagnosticsPanel">
+          <div class="diagnostics-table">
+            <div class="diag-row">
+              <span class="diag-key">Partition Scope</span>
+              <span class="diag-val highlight-green">Physical Per-Profile Sandbox</span>
+            </div>
+            <div class="diag-row">
+              <span class="diag-key">Custom Avatar</span>
+              <span class="diag-val" id="diagAvatarStatus">Checking...</span>
+            </div>
+            <div class="diag-row">
+              <span class="diag-key">Avatar Source</span>
+              <span class="diag-val" id="diagAvatarSource">None</span>
+            </div>
+            <div class="diag-row">
+              <span class="diag-key">Database</span>
+              <span class="diag-val" id="diagDbName">BraveProfileImagesDB</span>
+            </div>
+            <div class="diag-row">
+              <span class="diag-key">Google Auth</span>
+              <span class="diag-val" id="diagGoogleStatus">Checking...</span>
+            </div>
+            <div class="diag-row">
+              <span class="diag-key">Redirect URI</span>
+              <code class="diag-val code" id="diagRedirectUri">Loading...</code>
+            </div>
+            <div class="diag-row">
+              <span class="diag-key">Instance ID</span>
+              <code class="diag-val code" id="diagInstanceId">Resolving...</code>
+            </div>
+            <div class="diag-row">
+              <span class="diag-key">Extension ID</span>
+              <code class="diag-val code" id="diagExtensionId">Loading...</code>
+            </div>
+          </div>
+
+          <div class="diagnostics-actions">
+            <button type="button" class="btn-secondary btn-sm" id="btnCopyDiagnostics">
+              Copy Diagnostics JSON
+            </button>
+            <span class="copy-feedback hidden" id="copyFeedback">Copied!</span>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer Section -->
+    <footer class="popup-footer">
+      <span class="footer-text">Brave Profile Avatar • 100% Local</span>
+    </footer>
+  </div>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>
