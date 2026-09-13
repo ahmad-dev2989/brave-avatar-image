@@ -1,104 +1,101 @@
 /**
- * Profile Domain Model & Abstraction
+ * Profile Domain Model
  *
- * CRITICAL ARCHITECTURAL CONTEXT & PHASE 2 BOUNDARY:
- * ----------------------------------------------------
- * In Chromium-based browsers (including Brave):
- * 1. Each browser profile runs in its own isolated storage environment. An extension
- *    installed in "Profile 1" does not share extension storage with "Profile 2".
- * 2. Chromium does NOT expose a standard WebExtension API such as
- *    `chrome.profiles.getCurrentProfileId()`.
- * 3. The `chrome.identity` API is tied to Google Account authentication, which Brave
- *    deliberately disables and strips out for user privacy.
+ * ARCHITECTURAL DESIGN (PHASE 2 - SELF-SCOPED PROFILE MODEL):
+ * -----------------------------------------------------------
+ * In Chromium/Brave, extensions operate inside isolated per-profile storage sandboxes.
+ * Because there is no standard public API to query Brave's internal profile name or
+ * folder path, our architecture uses the browser profile's native physical storage
+ * boundary as the profile scope.
  *
- * DO NOT ATTEMPT IN PHASE 1:
- * - Do not invent random UUIDs and pretend they represent Brave profiles.
- * - Do not assume `chrome.identity` can provide profile information.
- * - Do not guess or fake profile IDs.
- *
- * In Phase 2, we will systematically investigate:
- * - Whether profile directory names (e.g. "Default", "Profile 1") can be identified
- *   via native messaging, extension filesystem introspection, or local user configuration.
- * - How to handle multi-profile extension instances or centralized mapping.
- *
- * This module establishes the domain model and interface contracts for future phases.
+ * Each Brave profile partition maintains its own `Profile` instance record:
+ * - `instanceId`: A persistent, high-entropy unique identifier generated on first run
+ *   inside that specific profile's storage sandbox (e.g. `bpi_prof_4f89a1...`).
+ * - `name`: A user-customizable display label (e.g. "Personal", "Uni", "Work").
+ * - `image`: Custom image Blob/data (to be populated in Phase 3).
+ * - `metadata`: Timestamp and diagnostic attributes.
  */
 
 /**
  * @typedef {Object} ProfileMetadata
- * @property {number} [createdAt] - Epoch timestamp when the profile record was created
- * @property {number} [updatedAt] - Epoch timestamp when the profile was last modified
- * @property {string} [notes] - Optional user notes
- * @property {Object} [displayOptions] - Future UI presentation preferences
+ * @property {number} createdAt - Epoch timestamp of profile instance creation
+ * @property {number} updatedAt - Epoch timestamp of last modification
+ * @property {string} [storageEngine='IndexedDB'] - Active storage mechanism
+ * @property {Object} [customPreferences={}] - Optional UI preferences
  */
 
 /**
  * @typedef {Object} Profile
- * @property {string|null} id - Unique identifier (to be resolved in Phase 2; null until discovered)
- * @property {string} name - User-facing profile name
- * @property {Blob|ArrayBuffer|string|null} image - Local custom image data (Blob preferred)
- * @property {ProfileMetadata} metadata - Additional profile metadata
+ * @property {string} instanceId - Persistent identifier scoped to this profile sandbox
+ * @property {string} name - Friendly display name for this profile
+ * @property {Blob|ArrayBuffer|string|null} image - Stored image data (Blob preferred)
+ * @property {ProfileMetadata} metadata - Profile instance metadata
  */
 
 /**
- * Creates a validated Profile domain object.
+ * Generates a collision-resistant profile instance identifier.
+ * Uses Web Crypto API when available for cryptographic randomness.
+ *
+ * @returns {string} Unique instance ID (e.g., 'bpi_prof_7f2b1a9c8d4e')
+ */
+export function generateProfileInstanceId() {
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    const bytes = new Uint8Array(8);
+    crypto.getRandomValues(bytes);
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    return `bpi_prof_${hex}`;
+  }
+
+  // Fallback if crypto is unavailable
+  const rand = Math.random().toString(36).substring(2, 10);
+  const time = Date.now().toString(36);
+  return `bpi_prof_${time}_${rand}`;
+}
+
+/**
+ * Creates a validated Profile instance.
  *
  * @param {Object} params
- * @param {string|null} [params.id=null] - The profile identifier (null until Phase 2 discovery)
- * @param {string} [params.name='Unnamed Profile'] - Display name
+ * @param {string} [params.instanceId] - Existing instance ID, or auto-generated if omitted
+ * @param {string} [params.name='Brave Profile'] - Display name
  * @param {Blob|ArrayBuffer|string|null} [params.image=null] - Image data
- * @param {ProfileMetadata} [params.metadata={}] - Optional metadata
+ * @param {Object} [params.metadata={}] - Additional metadata
  * @returns {Profile}
  */
 export function createProfile({
-  id = null,
-  name = 'Unnamed Profile',
+  instanceId = null,
+  name = 'Brave Profile',
   image = null,
   metadata = {}
 } = {}) {
+  const resolvedId = instanceId ? String(instanceId) : generateProfileInstanceId();
+  const now = Date.now();
+
   return {
-    id: id !== null ? String(id) : null,
-    name: String(name || 'Unnamed Profile'),
+    instanceId: resolvedId,
+    name: String(name || 'Brave Profile').trim(),
     image: image || null,
     metadata: {
-      createdAt: metadata.createdAt || Date.now(),
-      updatedAt: metadata.updatedAt || Date.now(),
+      createdAt: metadata.createdAt || now,
+      updatedAt: metadata.updatedAt || now,
+      storageEngine: metadata.storageEngine || 'IndexedDB',
       ...metadata
     }
   };
 }
 
 /**
- * Profile Service Contract / Interface
+ * Validates a profile object structure.
  *
- * Outlines the high-level profile operations that subsequent phases will implement
- * once profile detection mechanisms are investigated and finalized in Phase 2.
+ * @param {any} obj
+ * @returns {boolean}
  */
-export class ProfileService {
-  /**
-   * Identifies the current Brave profile context.
-   *
-   * @abstract
-   * @throws {Error} Throws until Phase 2 implements a verified profile resolution strategy.
-   * @returns {Promise<string>}
-   */
-  async getCurrentProfileId() {
-    throw new Error(
-      'ProfileService.getCurrentProfileId() is not implemented in Phase 1. ' +
-      'Brave profile identification requires dedicated investigation in Phase 2.'
-    );
-  }
-
-  /**
-   * Retrieves profile details for a given ID.
-   *
-   * @abstract
-   * @param {string} profileId
-   * @returns {Promise<Profile|null>}
-   */
-  async getProfile(profileId) {
-    throw new Error(
-      `ProfileService.getProfile(${profileId}) is not implemented in Phase 1.`
-    );
-  }
+export function isValidProfile(obj) {
+  return Boolean(
+    obj &&
+    typeof obj === 'object' &&
+    typeof obj.instanceId === 'string' &&
+    obj.instanceId.startsWith('bpi_prof_') &&
+    typeof obj.name === 'string'
+  );
 }

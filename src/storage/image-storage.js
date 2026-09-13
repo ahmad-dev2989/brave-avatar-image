@@ -191,6 +191,35 @@ class ImageStorageService {
   }
 
   /**
+   * Checks if an image record exists for a specific profile ID.
+   *
+   * @param {string} profileId - Unique profile identifier
+   * @returns {Promise<boolean>} True if record exists
+   */
+  async hasProfileImage(profileId) {
+    if (!profileId || typeof profileId !== 'string') {
+      return false;
+    }
+
+    const db = await this.getDatabase();
+
+    return new Promise((resolve) => {
+      const tx = db.transaction([DB_CONFIG.STORES.PROFILE_IMAGES], 'readonly');
+      const store = tx.objectStore(DB_CONFIG.STORES.PROFILE_IMAGES);
+      const request = store.count(profileId);
+
+      request.onsuccess = () => {
+        resolve(request.result > 0);
+      };
+
+      request.onerror = (event) => {
+        log.error(`Failed to check image existence for [${profileId}]:`, event.target.error);
+        resolve(false);
+      };
+    });
+  }
+
+  /**
    * Removes an image record associated with a profile ID.
    *
    * @param {string} profileId - Unique profile identifier

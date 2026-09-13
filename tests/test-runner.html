@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Brave Profile Images — Phase 3 Test Suite</title>
+  <style>
+    :root {
+      --bg-primary: #121316;
+      --bg-secondary: #1a1c22;
+      --bg-card: rgba(255, 255, 255, 0.04);
+      --border-subtle: rgba(255, 255, 255, 0.08);
+      --text-primary: #f0f2f5;
+      --text-secondary: #9aa0a6;
+      --text-muted: #6b7280;
+      --accent-orange: #fb542b;
+      --accent-gradient: linear-gradient(135deg, #fb542b 0%, #d81b60 50%, #7e57c2 100%);
+      --status-success: #10b981;
+      --status-error: #ef4444;
+      --font-stack: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      --font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background-color: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: var(--font-stack);
+      padding: 30px 20px;
+      display: flex;
+      justify-content: center;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 800px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .header-card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      padding: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    }
+
+    .title-group h1 {
+      font-size: 20px;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 6px;
+    }
+
+    .badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 4px;
+      background: rgba(251, 84, 43, 0.15);
+      color: #ff8a65;
+      display: inline-block;
+    }
+
+    .btn-run {
+      background: var(--accent-gradient);
+      color: #ffffff;
+      border: none;
+      padding: 10px 18px;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      box-shadow: 0 2px 10px rgba(251, 84, 43, 0.3);
+      transition: opacity 0.15s;
+    }
+
+    .btn-run:hover { opacity: 0.9; }
+
+    .summary-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .stats-row {
+      display: flex;
+      justify-content: space-around;
+      text-align: center;
+    }
+
+    .stat-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+      font-weight: 600;
+    }
+
+    .stat-val {
+      font-size: 22px;
+      font-weight: 700;
+      color: #ffffff;
+    }
+
+    .stat-val.passed { color: var(--status-success); }
+    .stat-val.failed { color: var(--status-error); }
+
+    .progress-bar-container {
+      width: 100%;
+      height: 8px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .progress-bar {
+      height: 100%;
+      width: 0%;
+      background: var(--status-success);
+      transition: width 0.2s ease;
+    }
+
+    .test-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .test-item {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      transition: border-color 0.2s;
+    }
+
+    .test-item.passed {
+      border-left: 4px solid var(--status-success);
+    }
+
+    .test-item.failed {
+      border-left: 4px solid var(--status-error);
+      background: rgba(239, 68, 68, 0.05);
+    }
+
+    .test-item.running {
+      border-left: 4px solid var(--accent-orange);
+    }
+
+    .test-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .test-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: #ffffff;
+    }
+
+    .test-status-badge {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+    }
+
+    .test-status-badge.passed {
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--status-success);
+    }
+
+    .test-status-badge.failed {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--status-error);
+    }
+
+    .test-status-badge.running {
+      background: rgba(251, 84, 43, 0.15);
+      color: var(--accent-orange);
+    }
+
+    .test-status-badge.pending {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text-muted);
+    }
+
+    .test-details {
+      font-size: 12px;
+      color: var(--text-secondary);
+      line-height: 1.4;
+      font-family: var(--font-mono);
+    }
+
+    .test-error {
+      color: #fca5a5;
+      background: rgba(239, 68, 68, 0.1);
+      padding: 6px 10px;
+      border-radius: 4px;
+      margin-top: 4px;
+      font-size: 12px;
+    }
+
+    .test-time {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header class="header-card">
+      <div class="title-group">
+        <h1>Phase 3 Automated Verification Suite</h1>
+        <span class="badge">Image Validation • Canvas Preprocessing • IndexedDB Persistence</span>
+      </div>
+      <button type="button" class="btn-run" id="btnRunTests">Run All Tests</button>
+    </header>
+
+    <section class="summary-card">
+      <div class="stats-row">
+        <div class="stat-box">
+          <div class="stat-label">Total Tests</div>
+          <div class="stat-val" id="statTotal">0</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Passed</div>
+          <div class="stat-val passed" id="statPassed">0</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Failed</div>
+          <div class="stat-val failed" id="statFailed">0</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Duration</div>
+          <div class="stat-val" id="statDuration">0 ms</div>
+        </div>
+      </div>
+      <div class="progress-bar-container">
+        <div class="progress-bar" id="progressBar"></div>
+      </div>
+    </section>
+
+    <section class="test-list" id="testList">
+      <!-- Test items dynamically rendered here -->
+    </section>
+  </div>
+
+  <script type="module">
+    import { tests } from './test-suite.js';
+
+    const testList = document.getElementById('testList');
+    const statTotal = document.getElementById('statTotal');
+    const statPassed = document.getElementById('statPassed');
+    const statFailed = document.getElementById('statFailed');
+    const statDuration = document.getElementById('statDuration');
+    const progressBar = document.getElementById('progressBar');
+    const btnRunTests = document.getElementById('btnRunTests');
+
+    statTotal.textContent = tests.length;
+
+    // Render skeleton test list
+    function renderTestList() {
+      testList.innerHTML = '';
+      tests.forEach((t) => {
+        const item = document.createElement('div');
+        item.className = 'test-item';
+        item.id = `card-${t.id}`;
+        item.innerHTML = `
+          <div class="test-header">
+            <span class="test-name">${t.name}</span>
+            <span class="test-status-badge pending" id="badge-${t.id}">PENDING</span>
+          </div>
+          <div class="test-details" id="details-${t.id}">Ready to run...</div>
+        `;
+        testList.appendChild(item);
+      });
+    }
+
+    async function runAllTests() {
+      btnRunTests.disabled = true;
+      btnRunTests.textContent = 'Running...';
+      renderTestList();
+
+      let passedCount = 0;
+      let failedCount = 0;
+      const startTime = performance.now();
+
+      for (let i = 0; i < tests.length; i++) {
+        const t = tests[i];
+        const card = document.getElementById(`card-${t.id}`);
+        const badge = document.getElementById(`badge-${t.id}`);
+        const details = document.getElementById(`details-${t.id}`);
+
+        if (card) card.className = 'test-item running';
+        if (badge) {
+          badge.className = 'test-status-badge running';
+          badge.textContent = 'RUNNING';
+        }
+
+        const tStart = performance.now();
+        try {
+          const result = await t.run();
+          const elapsed = Math.round(performance.now() - tStart);
+
+          passedCount++;
+          if (card) card.className = 'test-item passed';
+          if (badge) {
+            badge.className = 'test-status-badge passed';
+            badge.textContent = `PASS (${elapsed}ms)`;
+          }
+          if (details) {
+            details.textContent = result || 'Completed successfully.';
+          }
+        } catch (err) {
+          const elapsed = Math.round(performance.now() - tStart);
+          failedCount++;
+          if (card) card.className = 'test-item failed';
+          if (badge) {
+            badge.className = 'test-status-badge failed';
+            badge.textContent = `FAIL (${elapsed}ms)`;
+          }
+          if (details) {
+            details.innerHTML = `<div class="test-error">${err.message || String(err)}</div>`;
+          }
+        }
+
+        statPassed.textContent = passedCount;
+        statFailed.textContent = failedCount;
+        progressBar.style.width = `${Math.round(((i + 1) / tests.length) * 100)}%`;
+      }
+
+      const totalElapsed = Math.round(performance.now() - startTime);
+      statDuration.textContent = `${totalElapsed} ms`;
+      btnRunTests.disabled = false;
+      btnRunTests.textContent = 'Run All Tests';
+    }
+
+    btnRunTests.addEventListener('click', runAllTests);
+
+    // Run automatically on load
+    runAllTests();
+  </script>
+</body>
+</html>
