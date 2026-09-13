@@ -46,7 +46,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Set extension version badge
   const versionBadge = document.getElementById('versionBadge');
   if (versionBadge) {
-    versionBadge.textContent = `v${EXTENSION_CONFIG.VERSION} • Phase 7`;
+    versionBadge.textContent = `v${EXTENSION_CONFIG.VERSION} • Production`;
   }
 
   // Initialize Toast and Modal controllers
