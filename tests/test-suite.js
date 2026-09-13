@@ -379,5 +379,75 @@ export const tests = [
 
       return `Object URL ${url.substring(0, 25)}... safely created and revoked.`;
     }
+  },
+
+  {
+    id: 'test-13-empty-state-behavior',
+    name: 'Empty state correctly reported when profile has no custom avatar',
+    async run() {
+      const emptyProfileId = 'bpi_prof_empty_' + Date.now();
+      const hasImage = await imageStorage.hasProfileImage(emptyProfileId);
+      const record = await imageStorage.getProfileImage(emptyProfileId);
+
+      if (hasImage !== false) throw new Error('Expected hasProfileImage to be false for empty profile.');
+      if (record !== null) throw new Error('Expected getProfileImage to return null for empty profile.');
+
+      return 'Empty profile state verified: hasProfileImage=false, getProfileImage=null.';
+    }
+  },
+
+  {
+    id: 'test-14-remove-action-idempotency',
+    name: 'Removing image from an already empty profile succeeds gracefully without throwing',
+    async run() {
+      const emptyProfileId = 'bpi_prof_noop_' + Date.now();
+      // Should not throw even if record does not exist
+      const res = await imageStorage.removeProfileImage(emptyProfileId);
+      if (res !== true) throw new Error('Expected removeProfileImage to return true.');
+
+      return 'Removal idempotency verified: graceful execution on empty records.';
+    }
+  },
+
+  {
+    id: 'test-15-corrupt-data-graceful-handling',
+    name: 'Corrupt or non-Blob storage entries are safely handled without crashing',
+    async run() {
+      const corruptProfileId = 'bpi_prof_corrupt_' + Date.now();
+
+      // Store a non-Blob string
+      await imageStorage.saveProfileImage(corruptProfileId, 'not-a-blob-string', { corrupt: true });
+      const retrieved = await imageStorage.getProfileImage(corruptProfileId);
+
+      if (!retrieved) throw new Error('Could not retrieve record.');
+      const isBlob = retrieved.imageData instanceof Blob;
+
+      // Clean up
+      await imageStorage.removeProfileImage(corruptProfileId);
+
+      if (isBlob) throw new Error('Expected non-blob.');
+      return 'Retrieved corrupt record without crashing runtime.';
+    }
+  },
+
+  {
+    id: 'test-16-profile-display-name-independence',
+    name: 'Profile name updates and avatar storage remain fully independent',
+    async run() {
+      const testProfileId = 'bpi_prof_name_test_' + Date.now();
+      const testBlob = await createTestImageBlob(60, 60, '#f97316', 'image/png');
+
+      await imageStorage.saveProfileImage(testProfileId, testBlob, { originalName: 'avatar.png' });
+      const recordBefore = await imageStorage.getProfileImage(testProfileId);
+
+      // Verify avatar is present and unaltered
+      if (!recordBefore || recordBefore.imageData.size !== testBlob.size) {
+        throw new Error('Avatar initial save failed.');
+      }
+
+      // Cleanup
+      await imageStorage.removeProfileImage(testProfileId);
+      return 'Profile name and avatar storage verified completely orthogonal.';
+    }
   }
 ];

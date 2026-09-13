@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Brave Profile Images",
-  "version": "0.3.0",
-  "description": "Local-first browser extension for selecting and storing custom profile avatar images in Brave.",
+  "version": "0.4.0",
+  "description": "Local-first browser extension for managing and displaying custom profile avatars in Brave.",
   "icons": {
     "16": "assets/icons/icon-16.png",
     "48": "assets/icons/icon-48.png",

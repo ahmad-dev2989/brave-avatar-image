@@ -15,91 +15,129 @@
           <img src="../../assets/icons/icon-48.png" alt="Extension Logo" class="brand-logo" width="28" height="28">
         </div>
         <div class="title-group">
-          <h1 class="brand-title">Custom Brave Profiles</h1>
-          <span class="version-badge" id="versionBadge">v0.3.0 • Phase 3</span>
+          <h1 class="brand-title">Brave Profile Avatar</h1>
+          <span class="version-badge" id="versionBadge">v0.4.0 • Phase 4</span>
         </div>
       </div>
     </header>
 
     <!-- Main Content Section -->
     <main class="popup-body">
-      <!-- Image Alert Box (Errors & Warnings) -->
+      <!-- User Alert Banner (Errors, Warnings, Success) -->
       <div class="alert-box hidden" id="imageAlert" role="alert">
         <span class="alert-icon" id="alertIcon">⚠️</span>
-        <span class="alert-text" id="imageAlertText">Error message</span>
+        <div class="alert-content">
+          <span class="alert-text" id="imageAlertText">Notice message</span>
+          <button type="button" class="btn-retry hidden" id="btnRetryAction">Retry</button>
+        </div>
         <button type="button" class="alert-dismiss" id="btnDismissAlert" aria-label="Dismiss Alert">✕</button>
       </div>
 
-      <!-- Active Profile Card -->
+      <!-- Main Profile & Avatar Card -->
       <section class="profile-card" id="profileCard">
-        <div class="profile-card-header">
-          <span class="card-label">Active Browser Profile</span>
-          <span class="isolation-pill" title="This profile has a private, physically isolated storage partition.">
-            <span class="dot-green"></span> Isolated Partition
-          </span>
+        <!-- Profile Name Header with Inline Edit -->
+        <div class="profile-name-header">
+          <div class="profile-name-display" id="profileNameDisplay">
+            <span class="profile-name" id="profileNameText">Loading Profile...</span>
+            <button type="button" class="btn-icon" id="btnEditName" title="Rename this profile" aria-label="Edit Profile Name">
+              ✎
+            </button>
+          </div>
+          <!-- Inline Edit Form (Hidden by default) -->
+          <form class="profile-edit-form hidden" id="profileEditForm">
+            <input type="text" class="input-name" id="inputProfileName" maxlength="32" placeholder="Profile name (e.g. Personal)">
+            <div class="edit-actions">
+              <button type="submit" class="btn-save" id="btnSaveName">Save</button>
+              <button type="button" class="btn-cancel" id="btnCancelEdit">✕</button>
+            </div>
+          </form>
         </div>
 
-        <div class="profile-name-row">
-          <div class="profile-avatar-wrapper" id="profileAvatarWrapper" title="Click to choose a custom image">
-            <div class="profile-avatar-circle" id="profileAvatarFallback">
-              <span id="avatarInitials">BP</span>
+        <!-- Hero Avatar Showcase -->
+        <div class="avatar-hero-container">
+          <!-- Loading Skeleton Placeholder -->
+          <div class="avatar-skeleton-wrapper" id="avatarSkeleton">
+            <div class="avatar-skeleton-circle"></div>
+            <span class="avatar-skeleton-text">Loading avatar...</span>
+          </div>
+
+          <!-- Avatar Frame -->
+          <div class="profile-avatar-wrapper hidden" id="profileAvatarWrapper" role="button" tabindex="0" title="Click to choose a custom image" aria-label="Profile Avatar">
+            <!-- Custom Image Element -->
+            <img id="profileAvatarImg" class="profile-avatar-img hidden" alt="Custom Profile Avatar">
+
+            <!-- Default Placeholder Avatar (SVG Silhouette) -->
+            <div class="profile-avatar-empty" id="profileAvatarEmpty">
+              <svg class="avatar-placeholder-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                <circle cx="12" cy="7" r="4"></circle>
+              </svg>
             </div>
-            <img id="profileAvatarImg" class="profile-avatar-img hidden" alt="Profile Avatar">
-            <div class="avatar-hover-overlay">
+
+            <!-- Hover Overlay -->
+            <div class="avatar-hover-overlay" id="avatarHoverOverlay" aria-hidden="true">
               <span class="avatar-hover-icon">📷</span>
             </div>
           </div>
-          <div class="profile-name-group">
-            <div class="profile-name-display" id="profileNameDisplay">
-              <span class="profile-name" id="profileNameText">Loading Profile...</span>
-              <button type="button" class="btn-icon" id="btnEditName" title="Rename this profile" aria-label="Edit Profile Name">
-                ✎
-              </button>
+
+          <!-- Profile Status Badge -->
+          <div class="status-badge-container">
+            <div class="status-pill status-pill-empty" id="avatarStatusBadge">
+              <span class="status-dot"></span>
+              <span class="status-text" id="avatarStatusText">No custom avatar</span>
             </div>
-            <!-- Inline Edit Form (Hidden by default) -->
-            <form class="profile-edit-form hidden" id="profileEditForm">
-              <input type="text" class="input-name" id="inputProfileName" maxlength="32" placeholder="Profile name (e.g. Personal)">
-              <div class="edit-actions">
-                <button type="submit" class="btn-save" id="btnSaveName">Save</button>
-                <button type="button" class="btn-cancel" id="btnCancelEdit">✕</button>
-              </div>
-            </form>
-            <div class="profile-id-row">
-              <span class="id-label">Instance ID:</span>
-              <code class="profile-id-badge" id="profileInstanceId" title="Unique persistent ID for this profile partition">Resolving...</code>
-            </div>
+          </div>
+
+          <!-- Empty State Helpful Text -->
+          <p class="empty-state-text" id="emptyStateText">
+            Add an image to personalize this profile.
+          </p>
+        </div>
+
+        <!-- Action Buttons Area -->
+        <div class="avatar-actions-container">
+          <input type="file" id="imageFileInput" accept="image/png,image/jpeg,image/webp" class="hidden" aria-hidden="true">
+
+          <!-- Empty State Primary Button -->
+          <button type="button" class="btn-primary-action" id="btnAddImage" title="Select an image for this profile">
+            <span class="btn-icon-symbol">📷</span> Add Image
+          </button>
+
+          <!-- Active State Action Buttons -->
+          <div class="active-actions-row hidden" id="activeActionButtons">
+            <button type="button" class="btn-secondary-action" id="btnChangeImage" title="Select a different image">
+              <span class="btn-icon-symbol">🔄</span> Change Image
+            </button>
+            <button type="button" class="btn-danger-action" id="btnRemoveImage" title="Remove custom image">
+              <span class="btn-icon-symbol">🗑</span> Remove
+            </button>
           </div>
         </div>
 
-        <!-- Avatar Image Control Buttons -->
-        <div class="avatar-actions-row">
-          <input type="file" id="imageFileInput" accept="image/png,image/jpeg,image/webp" class="hidden">
-          <button type="button" class="btn-avatar-action" id="btnAddImage" title="Select a local avatar image">
-            <span class="btn-icon-symbol">📷</span> Add Image
-          </button>
-          <button type="button" class="btn-avatar-action hidden" id="btnChangeImage" title="Change to a different avatar image">
-            <span class="btn-icon-symbol">🔄</span> Change Image
-          </button>
-          <button type="button" class="btn-avatar-action btn-danger-action hidden" id="btnRemoveImage" title="Remove custom image and revert to initials">
-            <span class="btn-icon-symbol">🗑</span> Remove
-          </button>
+        <!-- Inline Remove Confirmation Prompt (Hidden by default) -->
+        <div class="remove-confirm-box hidden" id="removeConfirmBox" role="alertdialog" aria-labelledby="removeConfirmPrompt">
+          <p class="remove-confirm-prompt" id="removeConfirmPrompt">Remove this custom avatar?</p>
+          <div class="remove-confirm-actions">
+            <button type="button" class="btn-confirm-cancel" id="btnCancelRemove">Cancel</button>
+            <button type="button" class="btn-confirm-delete" id="btnConfirmRemove">Remove</button>
+          </div>
         </div>
       </section>
 
       <!-- Image Preview & Confirmation Card (Hidden by default) -->
-      <section class="image-preview-card hidden" id="imagePreviewCard">
+      <section class="image-preview-card hidden" id="imagePreviewCard" aria-label="Avatar Image Preview">
         <div class="preview-header">
           <span class="preview-title">New Avatar Preview</span>
           <span class="preview-badge">1:1 Square</span>
         </div>
         <div class="preview-content">
           <div class="preview-avatar-circle">
-            <img id="imagePreviewImg" class="preview-avatar-img" alt="Avatar Preview">
+            <img id="imagePreviewImg" class="preview-avatar-img" alt="Cropped Avatar Preview">
           </div>
           <div class="preview-details">
-            <div class="preview-file-name" id="previewFileName">filename.png</div>
+            <div class="preview-file-name" id="previewFileName">avatar.png</div>
             <div class="preview-meta-info" id="previewMetaInfo">512 × 512 • 45 KB</div>
-            <div class="preview-crop-hint">Auto center-cropped & optimized</div>
+            <div class="preview-crop-hint">Auto center-cropped to square</div>
           </div>
         </div>
         <div class="preview-actions">
@@ -108,46 +146,34 @@
         </div>
       </section>
 
-      <!-- Status Bar -->
-      <div class="status-card" id="statusCard">
-        <div class="status-indicator">
-          <span class="status-pulse"></span>
-          <span class="status-dot"></span>
-        </div>
-        <div class="status-content">
-          <p class="status-headline" id="statusHeadline">Profile Storage Active</p>
-          <p class="status-subtext" id="statusSubtext">Local IndexedDB ready in isolated profile partition.</p>
-        </div>
-      </div>
-
-      <!-- Diagnostics Collapsible Drawer -->
+      <!-- Diagnostics Collapsible Drawer (For Multi-Profile Inspection) -->
       <section class="diagnostics-section">
         <button type="button" class="diagnostics-toggle" id="btnToggleDiagnostics" aria-expanded="false">
           <span class="toggle-icon">▸</span>
-          <span class="toggle-title">Profile & Environment Diagnostics</span>
+          <span class="toggle-title">Profile & Diagnostics</span>
         </button>
 
         <div class="diagnostics-panel hidden" id="diagnosticsPanel">
           <div class="diagnostics-table">
             <div class="diag-row">
-              <span class="diag-key">Storage Scope</span>
+              <span class="diag-key">Partition Scope</span>
               <span class="diag-val highlight-green">Physical Per-Profile Sandbox</span>
-            </div>
-            <div class="diag-row">
-              <span class="diag-key">Database</span>
-              <span class="diag-val" id="diagDbName">BraveProfileImagesDB</span>
             </div>
             <div class="diag-row">
               <span class="diag-key">Custom Avatar</span>
               <span class="diag-val" id="diagAvatarStatus">Checking...</span>
             </div>
             <div class="diag-row">
-              <span class="diag-key">Extension ID</span>
-              <code class="diag-val code" id="diagExtensionId">Loading...</code>
+              <span class="diag-key">Database</span>
+              <span class="diag-val" id="diagDbName">BraveProfileImagesDB</span>
             </div>
             <div class="diag-row">
-              <span class="diag-key">Identity API</span>
-              <span class="diag-val" id="diagIdentityStatus">Probing...</span>
+              <span class="diag-key">Instance ID</span>
+              <code class="diag-val code" id="diagInstanceId">Resolving...</code>
+            </div>
+            <div class="diag-row">
+              <span class="diag-key">Extension ID</span>
+              <code class="diag-val code" id="diagExtensionId">Loading...</code>
             </div>
             <div class="diag-row">
               <span class="diag-key">Platform</span>
@@ -167,7 +193,7 @@
 
     <!-- Footer Section -->
     <footer class="popup-footer">
-      <span class="footer-text">Brave Profile Images • Local-First Extension</span>
+      <span class="footer-text">Brave Profile Images • 100% Local</span>
     </footer>
   </div>
 
